@@ -15,6 +15,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 from config import BOT_TOKEN, STATE_FILE_PATH, USER_CHAT_ID
 from main import process_image
 from state import load_state
+from datetime import datetime
 
 IMAGES = {
     "first": "photo_2026-04-03_10-46-24.jpg",
@@ -44,7 +45,10 @@ async def run():
     print(f"Current state: {state}")
     print(f"Processing: {image_path}")
 
-    await process_image(image_path)
+    now = datetime.now()
+    date = now.strftime("%d.%m.%Y")
+    timestamp = now.strftime("%H:%M")
+    await process_image(image_path, date=date, timestamp=timestamp)
     print("Done. Check Telegram.")
 
 

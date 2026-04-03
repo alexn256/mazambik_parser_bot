@@ -12,6 +12,7 @@ CHANNEL_USERNAME = os.environ["CHANNEL_USERNAME"]
 USER_CHAT_ID = int(os.environ["USER_CHAT_ID"])
 
 STATE_FILE_PATH = os.getenv("STATE_FILE_PATH", "./state.json")
+SUBSCRIBERS_FILE_PATH = os.getenv("SUBSCRIBERS_FILE_PATH", "./subscribers.json")
 
 # Grid layout constants (calibrated from sample images)
 # Bottom section starts at this fraction of total image height
@@ -35,6 +36,6 @@ QUEUE_EMOJI = {
     "2": "\U0001f7e2",  # 🟢
     "3": "\U0001f7e0",  # 🟠
     "4": "\U0001f535",  # 🔵
-    "5": "\U0001f338",  # 🟤
+    "5": "\U0001f7e4",  # 🟤
     "6": "\U0001f7e3",  # 🟣
 }

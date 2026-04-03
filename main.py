@@ -1,10 +1,13 @@
 import asyncio
 import logging
 
+import httpx
+
 from config import (
     BOT_TOKEN,
     CHANNEL_USERNAME,
     STATE_FILE_PATH,
+    SUBSCRIBERS_FILE_PATH,
     TELETHON_API_HASH,
     TELETHON_API_ID,
     TELETHON_SESSION_STRING,
@@ -14,8 +17,9 @@ from diff import compute_diff
 from formatter import format_schedule
 from monitor import create_client, setup_handler
 from parser import parse_schedule_image
-from sender import send_message
+from sender import broadcast, send_message
 from state import build_state, is_new_day, load_state, save_state
+from subscribers import add_subscriber, load_subscribers, remove_subscriber
 
 logging.basicConfig(
     level=logging.INFO,
@@ -24,7 +28,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-async def process_image(image_path: str) -> None:
+async def process_image(image_path: str, date: str | None = None, timestamp: str | None = None) -> None:
     """Full pipeline: parse image -> diff -> format -> send -> save state."""
     logger.info("Processing image: %s", image_path)
 
@@ -32,8 +36,14 @@ async def process_image(image_path: str) -> None:
         parsed = parse_schedule_image(image_path)
     except Exception:
         logger.exception("Failed to parse schedule image")
-        await send_message(BOT_TOKEN, USER_CHAT_ID, "\u274c Не вдалось розпізнати графік")
+        await broadcast(BOT_TOKEN, load_subscribers(SUBSCRIBERS_FILE_PATH), "❌ Не вдалось розпізнати графік")
         return
+
+    # Use date/timestamp from message if watermark OCR failed
+    if date and not parsed["date"]:
+        parsed["date"] = date
+    if timestamp and not parsed["timestamp"]:
+        parsed["timestamp"] = timestamp
 
     logger.info("Parsed schedule for date=%s time=%s", parsed["date"], parsed["timestamp"])
 
@@ -48,24 +58,83 @@ async def process_image(image_path: str) -> None:
             return
 
     message = format_schedule(parsed, diff, first_update)
+    subscribers = load_subscribers(SUBSCRIBERS_FILE_PATH)
 
-    success = await send_message(BOT_TOKEN, USER_CHAT_ID, message)
-    if success:
-        new_state = build_state(parsed, prev_state)
-        save_state(new_state, STATE_FILE_PATH)
-        logger.info("State saved (update #%d)", new_state["update_count"])
-    else:
-        logger.error("Failed to send message, state not updated")
+    if not subscribers:
+        logger.warning("No subscribers, skipping send")
+        return
+
+    await broadcast(BOT_TOKEN, subscribers, message)
+    new_state = build_state(parsed, prev_state)
+    save_state(new_state, STATE_FILE_PATH)
+    logger.info("State saved (update #%d)", new_state["update_count"])
+
+
+async def poll_commands() -> None:
+    """Poll Bot API for /subscribe and /unsubscribe commands."""
+    url_base = f"https://api.telegram.org/bot{BOT_TOKEN}"
+    offset = 0
+
+    async with httpx.AsyncClient(timeout=60) as client:
+        while True:
+            try:
+                resp = await client.get(
+                    f"{url_base}/getUpdates",
+                    params={"offset": offset, "timeout": 30, "allowed_updates": ["message"]},
+                )
+                if resp.status_code != 200:
+                    await asyncio.sleep(5)
+                    continue
+
+                updates = resp.json().get("result", [])
+                for update in updates:
+                    offset = update["update_id"] + 1
+                    message = update.get("message", {})
+                    text = message.get("text", "")
+                    chat_id = message.get("chat", {}).get("id")
+
+                    if not chat_id or not text:
+                        continue
+
+                    if text.startswith("/subscribe"):
+                        added = add_subscriber(chat_id, SUBSCRIBERS_FILE_PATH)
+                        if added:
+                            logger.info("New subscriber: %d", chat_id)
+                            await send_message(BOT_TOKEN, chat_id, "✅ Ви підписались на графік відключень.")
+                        else:
+                            await send_message(BOT_TOKEN, chat_id, "ℹ️ Ви вже підписані.")
+
+                    elif text.startswith("/unsubscribe"):
+                        removed = remove_subscriber(chat_id, SUBSCRIBERS_FILE_PATH)
+                        if removed:
+                            logger.info("Unsubscribed: %d", chat_id)
+                            await send_message(BOT_TOKEN, chat_id, "✅ Ви відписались від графіку відключень.")
+                        else:
+                            await send_message(BOT_TOKEN, chat_id, "ℹ️ Ви не були підписані.")
+
+            except Exception:
+                logger.exception("Error in poll_commands")
+                await asyncio.sleep(5)
 
 
 async def main():
+    # Seed initial subscriber if list is empty
+    subs = load_subscribers(SUBSCRIBERS_FILE_PATH)
+    if not subs:
+        add_subscriber(USER_CHAT_ID, SUBSCRIBERS_FILE_PATH)
+        logger.info("Seeded initial subscriber: %d", USER_CHAT_ID)
+
     client = create_client(TELETHON_API_ID, TELETHON_API_HASH, TELETHON_SESSION_STRING)
     setup_handler(client, CHANNEL_USERNAME, process_image)
 
     logger.info("Starting monitor for channel: %s", CHANNEL_USERNAME)
     await client.start()
     logger.info("Bot is running. Waiting for new schedule images...")
-    await client.run_until_disconnected()
+
+    await asyncio.gather(
+        client.run_until_disconnected(),
+        poll_commands(),
+    )
 
 
 if __name__ == "__main__":

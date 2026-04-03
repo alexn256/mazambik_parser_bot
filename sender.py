@@ -31,3 +31,11 @@ async def send_message(bot_token: str, chat_id: int, text: str) -> bool:
 
     logger.error("Failed to send message after 3 attempts")
     return False
+
+
+async def broadcast(bot_token: str, chat_ids: list[int], text: str) -> None:
+    """Send a message to all subscribers."""
+    for chat_id in chat_ids:
+        success = await send_message(bot_token, chat_id, text)
+        if not success:
+            logger.error("Failed to send message to chat_id=%d", chat_id)

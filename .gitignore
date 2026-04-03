@@ -1,5 +1,6 @@
 .env
 state.json
+subscribers.json
 *.session
 __pycache__/
 *.pyc
