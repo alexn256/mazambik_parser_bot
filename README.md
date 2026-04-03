@@ -95,7 +95,26 @@ python main.py
 
 ```bash
 docker build -t mazambik-bot .
-docker run --env-file .env mazambik-bot
+docker run -d --restart=unless-stopped --env-file .env --name mazambik-bot mazambik-bot
+```
+
+The `--restart=unless-stopped` flag ensures the bot automatically restarts after server reboots.
+
+**Useful commands:**
+
+```bash
+# View logs
+docker logs -f mazambik-bot
+
+# Stop the bot
+docker stop mazambik-bot
+
+# Start after manual stop
+docker start mazambik-bot
+
+# Rebuild and redeploy after code changes
+docker stop mazambik-bot && docker rm mazambik-bot
+docker build -t mazambik-bot . && docker run -d --restart=unless-stopped --env-file .env --name mazambik-bot mazambik-bot
 ```
 
 ## Testing the parser

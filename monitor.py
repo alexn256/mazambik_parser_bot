@@ -27,7 +27,12 @@ def setup_handler(client: TelegramClient, channel: str, callback):
         if not event.photo:
             return
 
-        logger.info("New photo in channel, downloading...")
+        caption = (event.message.message or "").lower()
+        if "графік" not in caption:
+            logger.info("Skipping photo without schedule caption")
+            return
+
+        logger.info("New schedule photo in channel, downloading...")
         tmp_dir = tempfile.gettempdir()
         path = await event.download_media(file=os.path.join(tmp_dir, "schedule_"))
 

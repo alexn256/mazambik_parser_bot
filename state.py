@@ -37,9 +37,6 @@ def is_new_day(state: dict | None, new_date: str | None) -> bool:
     """
     if state is None:
         return True
-    if new_date is None:
-        # Can't determine date — treat as new day to be safe
-        return True
     return state.get("date") != new_date
 
 
