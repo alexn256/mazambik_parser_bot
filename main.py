@@ -100,7 +100,10 @@ async def poll_commands() -> None:
                         added = add_subscriber(chat_id, SUBSCRIBERS_FILE_PATH)
                         if added:
                             logger.info("New subscriber: %d", chat_id)
-                            await send_message(BOT_TOKEN, chat_id, "✅ Ви підписались на графік відключень.")
+                            await send_message(BOT_TOKEN, chat_id,
+                                "✅ Ви підписались на графік відключень.\n\n"
+                                "З побажаннями та зауваженнями щодо роботи бота звертайтесь до @M_AHTS."
+                            )
                         else:
                             await send_message(BOT_TOKEN, chat_id, "ℹ️ Ви вже підписані.")
 
