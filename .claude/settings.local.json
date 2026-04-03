@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tesseract --version)",
+      "Bash(pip3 --version)",
+      "Bash(sudo apt-get:*)",
+      "Bash(apt list:*)",
+      "Bash(dpkg -l)",
+      "Bash(pip3 install:*)",
+      "Bash(python3:*)"
+    ]
+  }
+}
