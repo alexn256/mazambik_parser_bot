@@ -25,7 +25,7 @@ A Telegram bot that automatically parses power outage schedules from a public Te
 🔵 4 черга
 4.1 → 13:00 – 14:30
 4.2 → немає відключень
-🌸 5 черга
+🟤 5 черга
 5.1 → 08:00 – 09:30
 5.2 → 08:30 – 10:00
 🟣 6 черга
@@ -146,3 +146,5 @@ Recommended options:
 - **Railway** — $5/mo free credit, sufficient for this bot
 - **Oracle Cloud** — always-free ARM instance
 - **VPS** — any cheap VPS with Docker
+
+claude --resume 8596f3ca-0976-4fa1-91f2-811252b06fd6
