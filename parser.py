@@ -58,16 +58,14 @@ def _extract_watermark(img: np.ndarray) -> tuple[str | None, str | None]:
     import pytesseract
 
     h, w = img.shape[:2]
-    # Watermark is in the middle band of the image
-    mid_region = img[int(h * 0.35):int(h * 0.55), int(w * 0.2):int(w * 0.8)]
+    # Watermark text sits at the very top of the middle band
+    mid_region = img[int(h * 0.35):int(h * 0.40), int(w * 0.2):int(w * 0.8)]
 
-    # Enhance: convert to grayscale, increase contrast
     gray = cv2.cvtColor(mid_region, cv2.COLOR_BGR2GRAY)
-    # The watermark is typically a colored overlay text — try multiple thresholds
-    for thresh_val in [100, 120, 140, 160]:
+    for thresh_val in [160, 170, 180, 190, 150, 140]:
         _, binary = cv2.threshold(gray, thresh_val, 255, cv2.THRESH_BINARY_INV)
-        scaled = cv2.resize(binary, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
-        text = pytesseract.image_to_string(scaled, lang="ukr", config="--psm 6")
+        scaled = cv2.resize(binary, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
+        text = pytesseract.image_to_string(scaled, lang="ukr", config="--psm 7")
         match = WATERMARK_RE.search(text)
         if match:
             hh, mm = match.group(1), match.group(2)
@@ -157,11 +155,8 @@ def _ocr_box(box_img: np.ndarray) -> list[dict]:
 
     bh, bw = box_img.shape[:2]
 
-    # Skip the header area (top portion with "Черга X.Y" label)
-    content = box_img[int(bh * 0.28):, :]
-
     # Convert to grayscale
-    gray = cv2.cvtColor(content, cv2.COLOR_BGR2GRAY)
+    gray = cv2.cvtColor(box_img, cv2.COLOR_BGR2GRAY)
 
     # Otsu threshold
     _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)

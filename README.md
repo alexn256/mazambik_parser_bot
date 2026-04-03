@@ -1,16 +1,14 @@
 # Mazambik Parser Bot
 
-Telegram-бот для автоматического распознавания графиков отключений электроэнергии.
+A Telegram bot that automatically parses power outage schedules from a public Telegram channel. The channel publishes schedules as images — the bot recognizes them via OCR and sends a text representation to you in a private message.
 
-Публичный Telegram-канал публикует расписание отключений в виде картинок. Бот мониторит канал, распознаёт картинку через OCR и отправляет текстовое представление графика в личные сообщения.
+## Features
 
-## Возможности
+- **Image parsing** — recognizes 12 queues (6 × 2 sub-queues) with outage time ranges
+- **Change tracking** — if multiple schedules are published during the day, shows what changed (diff)
+- **Automatic monitoring** — listens to the channel in real time, reacts to new images
 
-- **Парсинг картинки** — распознаёт 12 очередей (6 x 2 подочереди) с временными диапазонами отключений
-- **Отслеживание изменений** — если за день публикуется несколько графиков, показывает что изменилось (diff)
-- **Автоматический мониторинг** — слушает канал в реальном времени, реагирует на новые картинки
-
-### Пример вывода
+### Example output
 
 ```
 ⚡ Графік відключень на 03.04.2026 (станом на 10:43)
@@ -39,53 +37,55 @@ Telegram-бот для автоматического распознавания
 ⏱ Черга 2.2: скоротили (було 11:30–13:00 → стало 11:30–12:30)
 ```
 
-## Стек
+## Tech stack
 
 - Python 3.12
-- OpenCV + Tesseract OCR (парсинг картинок)
-- Telethon (мониторинг канала)
-- Telegram Bot API через httpx (отправка сообщений)
+- OpenCV + Tesseract OCR (image parsing)
+- Telethon (channel monitoring)
+- Telegram Bot API via httpx (sending messages)
 
-## Быстрый старт
+## Quick start
 
-### 1. Системные зависимости
+### 1. System dependencies
 
 ```bash
 sudo apt-get install tesseract-ocr tesseract-ocr-ukr
 ```
 
-### 2. Python зависимости
+### 2. Python dependencies
 
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 3. Конфигурация
+### 3. Configuration
 
-Скопируй `.env.example` в `.env` и заполни:
+Copy `.env.example` to `.env` and fill in the values:
 
 ```bash
 cp .env.example .env
 ```
 
-| Переменная | Откуда взять |
+| Variable | Where to get it |
 |---|---|
 | `TELETHON_API_ID` | https://my.telegram.org → API development tools |
-| `TELETHON_API_HASH` | Там же |
-| `TELETHON_SESSION_STRING` | Запусти `python generate_session.py` |
-| `BOT_TOKEN` | @BotFather в Telegram |
-| `CHANNEL_USERNAME` | Username канала без `@` |
-| `USER_CHAT_ID` | Твой числовой ID (можно узнать через @userinfobot) |
+| `TELETHON_API_HASH` | Same page |
+| `TELETHON_SESSION_STRING` | Run `python generate_session.py` |
+| `BOT_TOKEN` | @BotFather in Telegram |
+| `CHANNEL_USERNAME` | Channel username without `@` |
+| `USER_CHAT_ID` | Your numeric Telegram ID (get it via @userinfobot) |
 
-### 4. Генерация session string (одноразово)
+### 4. Generate session string (one-time)
 
 ```bash
 python generate_session.py
 ```
 
-Скрипт запросит номер телефона и код подтверждения. Полученную строку вставь в `TELETHON_SESSION_STRING` в `.env`.
+The script will ask for your phone number and confirmation code. Paste the resulting string into `TELETHON_SESSION_STRING` in `.env`.
 
-### 5. Запуск
+### 5. Run
 
 ```bash
 python main.py
@@ -98,32 +98,32 @@ docker build -t mazambik-bot .
 docker run --env-file .env mazambik-bot
 ```
 
-## Тестирование парсера
+## Testing the parser
 
-Можно протестировать парсер отдельно на картинке:
+You can test the parser standalone on a sample image:
 
 ```bash
 python parser.py photo_2026-04-03_10-46-24.jpg
 ```
 
-## Структура проекта
+## Project structure
 
 ```
-config.py           — конфигурация из .env
-main.py             — точка входа
-monitor.py          — мониторинг Telegram-канала (Telethon)
-parser.py           — парсинг картинки (OpenCV + Tesseract)
-state.py            — управление состоянием (JSON)
-diff.py             — вычисление разницы между графиками
-formatter.py        — форматирование сообщений
-sender.py           — отправка через Bot API
-generate_session.py — генерация Telethon session string
+config.py           — configuration from .env
+main.py             — entry point
+monitor.py          — Telegram channel monitoring (Telethon)
+parser.py           — image parsing (OpenCV + Tesseract)
+state.py            — state management (JSON)
+diff.py             — schedule diff computation
+formatter.py        — message formatting
+sender.py           — sending via Bot API
+generate_session.py — Telethon session string generator
 ```
 
-## Деплой
+## Deployment
 
-Рекомендуемые варианты:
+Recommended options:
 
-- **Railway** — $5/мес free credit, достаточно для этого бота
+- **Railway** — $5/mo free credit, sufficient for this bot
 - **Oracle Cloud** — always-free ARM instance
-- **VPS** — любой дешёвый VPS с Docker
+- **VPS** — any cheap VPS with Docker
