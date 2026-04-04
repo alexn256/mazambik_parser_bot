@@ -1,17 +1,41 @@
 import json
 import os
 import tempfile
+from datetime import datetime
 
 
-def load_state(path: str) -> dict | None:
-    """Load state from JSON file. Returns None if file doesn't exist or is corrupt."""
+def _date_sort_key(date_str: str) -> datetime:
+    """Parse DD.MM.YYYY to datetime for sorting."""
+    try:
+        return datetime.strptime(date_str, "%d.%m.%Y")
+    except ValueError:
+        return datetime.min
+
+
+def load_state(path: str) -> dict:
+    """Load multi-date state from JSON file. Returns empty dict if missing or corrupt.
+
+    Automatically migrates old single-date format:
+      {"date": "...", "schedule": {...}, ...}
+    to new format:
+      {"DD.MM.YYYY": {"last_timestamp": ..., "schedule": {...}, "update_count": N}}
+    """
     if not os.path.exists(path):
-        return None
+        return {}
     try:
         with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
+        # Migrate old format
+        if isinstance(data, dict) and "schedule" in data and "date" in data:
+            date = data["date"]
+            return {date: {
+                "last_timestamp": data.get("last_timestamp"),
+                "schedule": data["schedule"],
+                "update_count": data.get("update_count", 1),
+            }}
+        return data
     except (json.JSONDecodeError, IOError):
-        return None
+        return {}
 
 
 def save_state(state: dict, path: str) -> None:
@@ -28,26 +52,41 @@ def save_state(state: dict, path: str) -> None:
         raise
 
 
-def is_new_day(state: dict | None, new_date: str | None) -> bool:
-    """Check if this is the first update of the day.
-
-    Args:
-        state: Current saved state or None.
-        new_date: Date string from the new schedule (e.g., "03.04.2026").
-    """
-    if state is None:
+def is_new_day(state: dict, date: str | None) -> bool:
+    """Check if this is the first update for the given date."""
+    if not date:
         return True
-    return state.get("date") != new_date
+    return date not in state
 
 
-def build_state(parsed: dict, prev_state: dict | None) -> dict:
-    """Build a new state dict from parsed schedule data."""
-    is_first = is_new_day(prev_state, parsed.get("date"))
-    update_count = 1 if is_first else prev_state.get("update_count", 0) + 1
+def build_state(state: dict, parsed: dict) -> dict:
+    """Update state dict with new parsed schedule. Keeps at most 2 most recent dates."""
+    date = parsed.get("date")
+    if not date:
+        return state
 
-    return {
-        "date": parsed["date"],
-        "last_timestamp": parsed["timestamp"],
+    existing = state.get(date, {})
+    is_first = date not in state
+    update_count = 1 if is_first else existing.get("update_count", 0) + 1
+
+    state[date] = {
+        "last_timestamp": parsed.get("timestamp"),
         "schedule": parsed["schedule"],
         "update_count": update_count,
     }
+
+    # Prune: keep only 2 most recent dates
+    if len(state) > 2:
+        dates = sorted(state.keys(), key=_date_sort_key)
+        for old_date in dates[:-2]:
+            del state[old_date]
+
+    return state
+
+
+def get_latest_state(state: dict) -> tuple[str, dict] | None:
+    """Get the most recent date entry. Returns (date, entry) or None."""
+    if not state:
+        return None
+    latest_date = max(state.keys(), key=_date_sort_key)
+    return latest_date, state[latest_date]
