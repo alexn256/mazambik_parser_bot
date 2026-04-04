@@ -70,8 +70,29 @@ async def process_image(image_path: str, date: str | None = None, timestamp: str
     logger.info("State saved (update #%d)", new_state["update_count"])
 
 
+async def send_start_message(client: httpx.AsyncClient, chat_id: int) -> None:
+    """Send welcome message with inline subscribe/unsubscribe buttons."""
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    await client.post(url, json={
+        "chat_id": chat_id,
+        "text": "Привіт! Цей бот надсилає графік відключень електроенергії.",
+        "reply_markup": {
+            "inline_keyboard": [[
+                {"text": "✅ Підписатись", "callback_data": "subscribe"},
+                {"text": "❌ Відписатись", "callback_data": "unsubscribe"},
+            ]]
+        }
+    })
+
+
+async def answer_callback(client: httpx.AsyncClient, callback_query_id: str, text: str) -> None:
+    """Answer a callback query (dismisses the loading indicator on the button)."""
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/answerCallbackQuery"
+    await client.post(url, json={"callback_query_id": callback_query_id, "text": text})
+
+
 async def poll_commands() -> None:
-    """Poll Bot API for /subscribe and /unsubscribe commands."""
+    """Poll Bot API for commands and inline button callbacks."""
     url_base = f"https://api.telegram.org/bot{BOT_TOKEN}"
     offset = 0
 
@@ -80,7 +101,7 @@ async def poll_commands() -> None:
             try:
                 resp = await client.get(
                     f"{url_base}/getUpdates",
-                    params={"offset": offset, "timeout": 30, "allowed_updates": ["message"]},
+                    params={"offset": offset, "timeout": 30, "allowed_updates": ["message", "callback_query"]},
                 )
                 if resp.status_code != 200:
                     await asyncio.sleep(5)
@@ -89,6 +110,34 @@ async def poll_commands() -> None:
                 updates = resp.json().get("result", [])
                 for update in updates:
                     offset = update["update_id"] + 1
+
+                    # Handle inline button press
+                    if "callback_query" in update:
+                        cq = update["callback_query"]
+                        chat_id = cq["message"]["chat"]["id"]
+                        data = cq.get("data", "")
+
+                        if data == "subscribe":
+                            added = add_subscriber(chat_id, SUBSCRIBERS_FILE_PATH)
+                            if added:
+                                logger.info("New subscriber: %d", chat_id)
+                                await answer_callback(client, cq["id"],
+                                    "✅ Ви підписались на графік відключень.\n"
+                                    "З побажаннями та зауваженнями звертайтесь до @M_AHTS."
+                                )
+                            else:
+                                await answer_callback(client, cq["id"], "ℹ️ Ви вже підписані.")
+
+                        elif data == "unsubscribe":
+                            removed = remove_subscriber(chat_id, SUBSCRIBERS_FILE_PATH)
+                            if removed:
+                                logger.info("Unsubscribed: %d", chat_id)
+                                await answer_callback(client, cq["id"], "✅ Ви відписались від графіку відключень.")
+                            else:
+                                await answer_callback(client, cq["id"], "ℹ️ Ви не були підписані.")
+                        continue
+
+                    # Handle text commands
                     message = update.get("message", {})
                     text = message.get("text", "")
                     chat_id = message.get("chat", {}).get("id")
@@ -96,7 +145,10 @@ async def poll_commands() -> None:
                     if not chat_id or not text:
                         continue
 
-                    if text.startswith("/subscribe"):
+                    if text.startswith("/start"):
+                        await send_start_message(client, chat_id)
+
+                    elif text.startswith("/subscribe"):
                         added = add_subscriber(chat_id, SUBSCRIBERS_FILE_PATH)
                         if added:
                             logger.info("New subscriber: %d", chat_id)
