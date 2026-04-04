@@ -75,7 +75,8 @@ async def send_start_message(client: httpx.AsyncClient, chat_id: int) -> None:
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     await client.post(url, json={
         "chat_id": chat_id,
-        "text": "Привіт! Цей бот надсилає графік відключень електроенергії.",
+        "text": "Привіт! Цей бот надсилає графік відключень електроенергії.\n"
+                "З побажаннями та зауваженнями звертайтесь до @M_AHTS.",
         "reply_markup": {
             "inline_keyboard": [[
                 {"text": "✅ Підписатись", "callback_data": "subscribe"},
