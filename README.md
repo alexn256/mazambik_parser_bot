@@ -1,6 +1,10 @@
+<div align="center">
+  <img src="logo.png" alt="Mazambik Parser Bot" width="120"/>
+
 # Mazambik Parser Bot
 
 A Telegram bot that automatically parses power outage schedules from a public Telegram channel. The channel publishes schedules as images — the bot recognizes them via OCR and sends a text representation to you in a private message.
+</div>
 
 ## Features
 

@@ -250,6 +250,27 @@ async def poll_commands() -> None:
                     if text.startswith("/start"):
                         await send_start_message(client, chat_id)
 
+                    elif text.startswith("/status"):
+                        if chat_id != USER_CHAT_ID:
+                            continue
+                        subs = load_subscribers(SUBSCRIBERS_FILE_PATH)
+                        state = load_state(STATE_FILE_PATH)
+
+                        lines = [f"👥 Підписників: {len(subs)}"]
+                        for cid, queue in subs.items():
+                            lines.append(f"  • {cid} — {queue or 'всі черги'}")
+
+                        if state:
+                            for date, entry in sorted(state.items()):
+                                lines.append(
+                                    f"\n📅 {date} — оновлення #{entry['update_count']}, "
+                                    f"станом на {entry.get('last_timestamp') or '?'}"
+                                )
+                        else:
+                            lines.append("\nℹ️ Стейт порожній")
+
+                        await send_message(BOT_TOKEN, chat_id, "\n".join(lines))
+
                     elif text.startswith("/subscribe"):
                         added = add_subscriber(chat_id, SUBSCRIBERS_FILE_PATH)
                         if added:
