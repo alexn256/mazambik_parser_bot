@@ -42,6 +42,79 @@ QUEUE_LABELS = ["1.1", "1.2", "2.1", "2.2", "3.1", "3.2",
                 "4.1", "4.2", "5.1", "5.2", "6.1", "6.2"]
 
 
+def _time_to_minutes(t: str) -> int:
+    h, m = map(int, t.split(":"))
+    return h * 60 + m
+
+
+def _format_duration(minutes: int) -> str:
+    h, m = divmod(minutes, 60)
+    if h > 0 and m > 0:
+        return f"{h} год {m} хв"
+    elif h > 0:
+        return f"{h} год"
+    return f"{m} хв"
+
+
+def _find_next_range(ranges: list, after_minutes: int) -> dict | None:
+    for r in sorted(ranges, key=lambda x: _time_to_minutes(x["start"])):
+        if _time_to_minutes(r["start"]) > after_minutes:
+            return r
+    return None
+
+
+async def send_current_status(chat_id: int) -> None:
+    """Send real-time power status: is there power now, and when does it change?"""
+    queue = load_subscribers(SUBSCRIBERS_FILE_PATH).get(chat_id)
+    if not queue:
+        await send_message(BOT_TOKEN, chat_id,
+            "ℹ️ Оберіть свою чергу щоб дізнатись поточний статус.\n"
+            "Натисніть «⚙️ Моя черга» у меню /start.")
+        return
+
+    state = load_state(STATE_FILE_PATH)
+    today = datetime.now(UKRAINE_TZ).strftime("%d.%m.%Y")
+    entry = state.get(today)
+    if not entry:
+        await send_message(BOT_TOKEN, chat_id,
+            "ℹ️ Графік на сьогодні ще не отримано.")
+        return
+
+    ranges = entry["schedule"].get(queue, [])
+    now = datetime.now(UKRAINE_TZ)
+    now_m = now.hour * 60 + now.minute
+
+    # Check if currently in outage
+    current_outage = next(
+        (r for r in ranges
+         if _time_to_minutes(r["start"]) <= now_m < _time_to_minutes(r["end"])),
+        None,
+    )
+
+    lines = []
+    if current_outage:
+        remaining = _time_to_minutes(current_outage["end"]) - now_m
+        next_outage = _find_next_range(ranges, _time_to_minutes(current_outage["end"]))
+        lines.append(f"🔴 Зараз відключення · черга {queue}")
+        lines.append(f"до {current_outage['end']} (ще {_format_duration(remaining)})")
+        if next_outage:
+            lines.append(f"Далі: світло з {current_outage['end']} до {next_outage['start']}")
+        else:
+            lines.append(f"Далі: світло з {current_outage['end']} до кінця дня")
+    else:
+        next_outage = _find_next_range(ranges, now_m)
+        if next_outage:
+            remaining = _time_to_minutes(next_outage["start"]) - now_m
+            lines.append(f"💡 Зараз є світло · черга {queue}")
+            lines.append(f"до {next_outage['start']} (ще {_format_duration(remaining)})")
+            lines.append(f"Далі: відключення {next_outage['start']} – {next_outage['end']}")
+        else:
+            lines.append(f"💡 Зараз є світло · черга {queue}")
+            lines.append("Відключень більше не заплановано на сьогодні")
+
+    await send_message(BOT_TOKEN, chat_id, "\n".join(lines))
+
+
 async def send_current_schedule(chat_id: int) -> None:
     """Send the latest saved schedule to a single user, or a fallback message."""
     state = load_state(STATE_FILE_PATH)
@@ -134,8 +207,15 @@ async def send_start_message(client: httpx.AsyncClient, chat_id: int) -> None:
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     await client.post(url, json={
         "chat_id": chat_id,
-        "text": "Привіт! Цей бот надсилає графік відключень електроенергії.\n"
-                "З побажаннями та зауваженнями звертайтесь до @M_AHTS.",
+        "text": (
+            "Привіт! Цей бот надсилає графік відключень електроенергії.\n\n"
+            "📋 Поточний графік — розклад на сьогодні\n"
+            "📅 Графік на завтра — якщо вже опубліковано\n"
+            "⚡ Що зараз? — є світло чи ні прямо зараз\n"
+            "⚙️ Моя черга — персональні сповіщення по своїй черзі\n"
+            "📊 Статистика — години відключень за тиждень/місяць\n\n"
+            "З побажаннями та зауваженнями звертайтесь до @M_AHTS."
+        ),
         "reply_markup": {
             "inline_keyboard": [
                 [
@@ -145,6 +225,9 @@ async def send_start_message(client: httpx.AsyncClient, chat_id: int) -> None:
                 [
                     {"text": "📋 Поточний графік", "callback_data": "show_current"},
                     {"text": "📅 Графік на завтра", "callback_data": "show_tomorrow"},
+                ],
+                [
+                    {"text": "⚡ Що зараз?", "callback_data": "show_status"},
                 ],
                 [
                     {"text": "⚙️ Моя черга", "callback_data": "select_queue"},
@@ -249,6 +332,10 @@ async def poll_commands() -> None:
                         elif data == "select_queue":
                             await answer_callback(client, cq["id"], "")
                             await send_queue_selector(client, chat_id)
+
+                        elif data == "show_status":
+                            await answer_callback(client, cq["id"], "⚡ Перевіряю...")
+                            await send_current_status(chat_id)
 
                         elif data == "show_stats":
                             await answer_callback(client, cq["id"], "")
