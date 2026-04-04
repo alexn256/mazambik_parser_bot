@@ -28,6 +28,23 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+async def send_current_schedule(chat_id: int) -> None:
+    """Send the current saved schedule to a single user, or a fallback message."""
+    state = load_state(STATE_FILE_PATH)
+    if not state:
+        await send_message(BOT_TOKEN, chat_id,
+            "ℹ️ Графік ще не отримано. Очікуйте публікації у каналі.")
+        return
+
+    parsed = {
+        "date": state.get("date"),
+        "timestamp": state.get("last_timestamp"),
+        "schedule": state["schedule"],
+    }
+    message = format_schedule(parsed, diff=None, is_first=True)
+    await send_message(BOT_TOKEN, chat_id, message)
+
+
 async def process_image(image_path: str, date: str | None = None, timestamp: str | None = None) -> None:
     """Full pipeline: parse image -> diff -> format -> send -> save state."""
     logger.info("Processing image: %s", image_path)
@@ -78,10 +95,15 @@ async def send_start_message(client: httpx.AsyncClient, chat_id: int) -> None:
         "text": "Привіт! Цей бот надсилає графік відключень електроенергії.\n"
                 "З побажаннями та зауваженнями звертайтесь до @M_AHTS.",
         "reply_markup": {
-            "inline_keyboard": [[
-                {"text": "✅ Підписатись", "callback_data": "subscribe"},
-                {"text": "❌ Відписатись", "callback_data": "unsubscribe"},
-            ]]
+            "inline_keyboard": [
+                [
+                    {"text": "✅ Підписатись", "callback_data": "subscribe"},
+                    {"text": "❌ Відписатись", "callback_data": "unsubscribe"},
+                ],
+                [
+                    {"text": "📋 Поточний графік", "callback_data": "show_current"},
+                ],
+            ]
         }
     })
 
@@ -136,6 +158,10 @@ async def poll_commands() -> None:
                                 await answer_callback(client, cq["id"], "✅ Ви відписались від графіку відключень.")
                             else:
                                 await answer_callback(client, cq["id"], "ℹ️ Ви не були підписані.")
+
+                        elif data == "show_current":
+                            await answer_callback(client, cq["id"], "📋 Надсилаю поточний графік...")
+                            await send_current_schedule(chat_id)
                         continue
 
                     # Handle text commands
