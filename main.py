@@ -20,7 +20,12 @@ from monitor import create_client, setup_handler
 from parser import parse_schedule_image
 from sender import broadcast, send_message
 from state import build_state, get_latest_state, is_new_day, load_state, save_state
-from subscribers import add_subscriber, load_subscribers, remove_subscriber
+from subscribers import (
+    add_subscriber,
+    load_subscribers,
+    remove_subscriber,
+    set_subscriber_queue,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -29,6 +34,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 UKRAINE_TZ = timezone(timedelta(hours=3))
+
+QUEUE_LABELS = ["1.1", "1.2", "2.1", "2.2", "3.1", "3.2",
+                "4.1", "4.2", "5.1", "5.2", "6.1", "6.2"]
 
 
 async def send_current_schedule(chat_id: int) -> None:
@@ -40,13 +48,9 @@ async def send_current_schedule(chat_id: int) -> None:
             "ℹ️ Графік ще не отримано. Очікуйте публікації у каналі.")
         return
     date, entry = result
-    parsed = {
-        "date": date,
-        "timestamp": entry.get("last_timestamp"),
-        "schedule": entry["schedule"],
-    }
-    message = format_schedule(parsed, diff=None, is_first=True)
-    await send_message(BOT_TOKEN, chat_id, message)
+    queue = load_subscribers(SUBSCRIBERS_FILE_PATH).get(chat_id)
+    parsed = {"date": date, "timestamp": entry.get("last_timestamp"), "schedule": entry["schedule"]}
+    await send_message(BOT_TOKEN, chat_id, format_schedule(parsed, diff=None, is_first=True, queue_filter=queue))
 
 
 async def send_tomorrow_schedule(chat_id: int) -> None:
@@ -58,13 +62,9 @@ async def send_tomorrow_schedule(chat_id: int) -> None:
         await send_message(BOT_TOKEN, chat_id,
             "ℹ️ Графік на завтра ще не опубліковано.")
         return
-    parsed = {
-        "date": tomorrow,
-        "timestamp": entry.get("last_timestamp"),
-        "schedule": entry["schedule"],
-    }
-    message = format_schedule(parsed, diff=None, is_first=True)
-    await send_message(BOT_TOKEN, chat_id, message)
+    queue = load_subscribers(SUBSCRIBERS_FILE_PATH).get(chat_id)
+    parsed = {"date": tomorrow, "timestamp": entry.get("last_timestamp"), "schedule": entry["schedule"]}
+    await send_message(BOT_TOKEN, chat_id, format_schedule(parsed, diff=None, is_first=True, queue_filter=queue))
 
 
 async def process_image(image_path: str, date: str | None = None, timestamp: str | None = None) -> None:
@@ -75,7 +75,8 @@ async def process_image(image_path: str, date: str | None = None, timestamp: str
         parsed = parse_schedule_image(image_path)
     except Exception:
         logger.exception("Failed to parse schedule image")
-        await broadcast(BOT_TOKEN, load_subscribers(SUBSCRIBERS_FILE_PATH), "❌ Не вдалось розпізнати графік")
+        subs = load_subscribers(SUBSCRIBERS_FILE_PATH)
+        await broadcast(BOT_TOKEN, list(subs.keys()), "❌ Не вдалось розпізнати графік")
         return
 
     # Use date/timestamp from message if watermark OCR failed
@@ -97,14 +98,21 @@ async def process_image(image_path: str, date: str | None = None, timestamp: str
             logger.info("No changes detected, skipping notification")
             return
 
-    message = format_schedule(parsed, diff, first_update)
     subscribers = load_subscribers(SUBSCRIBERS_FILE_PATH)
-
     if not subscribers:
         logger.warning("No subscribers, skipping send")
         return
 
-    await broadcast(BOT_TOKEN, subscribers, message)
+    for chat_id, queue in subscribers.items():
+        if not first_update and diff is not None and queue:
+            user_diff = [c for c in diff if c["queue"] == queue]
+            if not user_diff:
+                continue  # no changes relevant to this user's queue
+        else:
+            user_diff = diff
+
+        msg = format_schedule(parsed, user_diff, first_update, queue_filter=queue)
+        await send_message(BOT_TOKEN, chat_id, msg)
 
     if parsed_date:
         new_state = build_state(state, parsed)
@@ -113,7 +121,7 @@ async def process_image(image_path: str, date: str | None = None, timestamp: str
 
 
 async def send_start_message(client: httpx.AsyncClient, chat_id: int) -> None:
-    """Send welcome message with inline subscribe/unsubscribe buttons."""
+    """Send welcome message with inline buttons."""
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     await client.post(url, json={
         "chat_id": chat_id,
@@ -129,8 +137,30 @@ async def send_start_message(client: httpx.AsyncClient, chat_id: int) -> None:
                     {"text": "📋 Поточний графік", "callback_data": "show_current"},
                     {"text": "📅 Графік на завтра", "callback_data": "show_tomorrow"},
                 ],
+                [
+                    {"text": "⚙️ Моя черга", "callback_data": "select_queue"},
+                ],
             ]
         }
+    })
+
+
+async def send_queue_selector(client: httpx.AsyncClient, chat_id: int) -> None:
+    """Send inline keyboard for queue selection."""
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    keyboard = [
+        [
+            {"text": QUEUE_LABELS[i], "callback_data": f"set_queue_{QUEUE_LABELS[i]}"},
+            {"text": QUEUE_LABELS[i + 1], "callback_data": f"set_queue_{QUEUE_LABELS[i + 1]}"},
+        ]
+        for i in range(0, len(QUEUE_LABELS), 2)
+    ]
+    keyboard.append([{"text": "🔄 Всі черги", "callback_data": "set_queue_all"}])
+    await client.post(url, json={
+        "chat_id": chat_id,
+        "text": "Оберіть свою чергу. Ви будете отримувати лише її графік та зміни.\n"
+                "«Всі черги» — повний графік без фільтру.",
+        "reply_markup": {"inline_keyboard": keyboard},
     })
 
 
@@ -192,6 +222,21 @@ async def poll_commands() -> None:
                         elif data == "show_tomorrow":
                             await answer_callback(client, cq["id"], "📅 Надсилаю графік на завтра...")
                             await send_tomorrow_schedule(chat_id)
+
+                        elif data == "select_queue":
+                            await answer_callback(client, cq["id"], "")
+                            await send_queue_selector(client, chat_id)
+
+                        elif data.startswith("set_queue_"):
+                            queue_value = data[len("set_queue_"):]
+                            queue = None if queue_value == "all" else queue_value
+                            set_subscriber_queue(chat_id, queue, SUBSCRIBERS_FILE_PATH)
+                            if queue:
+                                logger.info("Queue set: %d -> %s", chat_id, queue)
+                                await answer_callback(client, cq["id"], f"✅ Ваша черга: {queue}")
+                            else:
+                                logger.info("Queue cleared: %d", chat_id)
+                                await answer_callback(client, cq["id"], "✅ Отримуєте повний графік")
                         continue
 
                     # Handle text commands

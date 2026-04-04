@@ -3,25 +3,33 @@ import os
 import tempfile
 
 
-def load_subscribers(path: str) -> list[int]:
-    """Load subscriber chat IDs from JSON file."""
+def load_subscribers(path: str) -> dict[int, str | None]:
+    """Load subscribers from JSON file.
+
+    Returns a dict mapping chat_id → queue (e.g. "3.2") or None (all queues).
+
+    Automatically migrates old list format [id1, id2] to new dict format.
+    """
     if not os.path.exists(path):
-        return []
+        return {}
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
-            return [int(x) for x in data]
+        # Migrate old list format
+        if isinstance(data, list):
+            return {int(x): None for x in data}
+        return {int(k): v for k, v in data.items()}
     except (json.JSONDecodeError, IOError, ValueError):
-        return []
+        return {}
 
 
-def save_subscribers(subscribers: list[int], path: str) -> None:
-    """Atomically save subscriber list to JSON file."""
+def save_subscribers(subscribers: dict[int, str | None], path: str) -> None:
+    """Atomically save subscribers dict to JSON file."""
     dir_name = os.path.dirname(os.path.abspath(path))
     fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix=".json.tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(subscribers, f)
+            json.dump({str(k): v for k, v in subscribers.items()}, f)
         os.replace(tmp_path, path)
     except Exception:
         if os.path.exists(tmp_path):
@@ -30,11 +38,11 @@ def save_subscribers(subscribers: list[int], path: str) -> None:
 
 
 def add_subscriber(chat_id: int, path: str) -> bool:
-    """Add a subscriber. Returns True if added, False if already subscribed."""
+    """Add a subscriber with no queue filter. Returns True if added, False if already exists."""
     subs = load_subscribers(path)
     if chat_id in subs:
         return False
-    subs.append(chat_id)
+    subs[chat_id] = None
     save_subscribers(subs, path)
     return True
 
@@ -44,6 +52,13 @@ def remove_subscriber(chat_id: int, path: str) -> bool:
     subs = load_subscribers(path)
     if chat_id not in subs:
         return False
-    subs.remove(chat_id)
+    del subs[chat_id]
     save_subscribers(subs, path)
     return True
+
+
+def set_subscriber_queue(chat_id: int, queue: str | None, path: str) -> None:
+    """Set queue filter for a subscriber. queue=None means all queues."""
+    subs = load_subscribers(path)
+    subs[chat_id] = queue
+    save_subscribers(subs, path)
