@@ -13,6 +13,7 @@ USER_CHAT_ID = int(os.environ["USER_CHAT_ID"])
 
 STATE_FILE_PATH = os.getenv("STATE_FILE_PATH", "./state.json")
 SUBSCRIBERS_FILE_PATH = os.getenv("SUBSCRIBERS_FILE_PATH", "./subscribers.json")
+HISTORY_FILE_PATH = os.getenv("HISTORY_FILE_PATH", "./history.json")
 
 # Grid layout constants (calibrated from sample images)
 # Bottom section starts at this fraction of total image height

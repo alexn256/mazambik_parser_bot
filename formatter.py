@@ -1,3 +1,5 @@
+from stats import _progress_bar, _total_outage_minutes
+
 QUEUE_EMOJI = {
     "1": "\U0001f7e1",  # 🟡
     "2": "\U0001f7e2",  # 🟢
@@ -54,6 +56,12 @@ def format_schedule(
             lines.append(f"{queue_filter} \u2192 {times}")
         else:
             lines.append(f"{queue_filter} \u2192 немає відключень")
+
+        # Summary: outage hours bar
+        minutes_off = _total_outage_minutes(ranges)
+        minutes_on = 24 * 60 - minutes_off
+        bar = _progress_bar(minutes_off)
+        lines.append(f"\n{bar}  {minutes_off / 60:.1f} год без світла \u00b7 {minutes_on / 60:.1f} год зі світлом")
     else:
         for q_num in range(1, 7):
             emoji = QUEUE_EMOJI[str(q_num)]

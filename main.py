@@ -7,6 +7,7 @@ import httpx
 from config import (
     BOT_TOKEN,
     CHANNEL_USERNAME,
+    HISTORY_FILE_PATH,
     STATE_FILE_PATH,
     SUBSCRIBERS_FILE_PATH,
     TELETHON_API_HASH,
@@ -19,7 +20,9 @@ from formatter import format_schedule
 from monitor import create_client, setup_handler
 from parser import parse_schedule_image
 from sender import broadcast, send_message
+from history import load_history, record_day, save_history
 from state import build_state, get_latest_state, is_new_day, load_state, save_state
+from stats import compute_stats
 from subscribers import (
     add_subscriber,
     load_subscribers,
@@ -119,6 +122,12 @@ async def process_image(image_path: str, date: str | None = None, timestamp: str
         save_state(new_state, STATE_FILE_PATH)
         logger.info("State saved (update #%d for %s)", new_state[parsed_date]["update_count"], parsed_date)
 
+        try:
+            history = load_history(HISTORY_FILE_PATH)
+            save_history(record_day(history, parsed_date, parsed["schedule"]), HISTORY_FILE_PATH)
+        except Exception:
+            logger.exception("Failed to save history")
+
 
 async def send_start_message(client: httpx.AsyncClient, chat_id: int) -> None:
     """Send welcome message with inline buttons."""
@@ -139,6 +148,7 @@ async def send_start_message(client: httpx.AsyncClient, chat_id: int) -> None:
                 ],
                 [
                     {"text": "⚙️ Моя черга", "callback_data": "select_queue"},
+                    {"text": "📊 Статистика", "callback_data": "show_stats"},
                 ],
             ]
         }
@@ -161,6 +171,19 @@ async def send_queue_selector(client: httpx.AsyncClient, chat_id: int) -> None:
         "text": "Оберіть свою чергу. Ви будете отримувати лише її графік та зміни.\n"
                 "«Всі черги» — повний графік без фільтру.",
         "reply_markup": {"inline_keyboard": keyboard},
+    })
+
+
+async def send_stats_selector(client: httpx.AsyncClient, chat_id: int) -> None:
+    """Send inline keyboard to choose stats period."""
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    await client.post(url, json={
+        "chat_id": chat_id,
+        "text": "Оберіть період статистики:",
+        "reply_markup": {"inline_keyboard": [[
+            {"text": "📅 За тиждень", "callback_data": "stats_7"},
+            {"text": "🗓 За місяць", "callback_data": "stats_30"},
+        ]]},
     })
 
 
@@ -226,6 +249,18 @@ async def poll_commands() -> None:
                         elif data == "select_queue":
                             await answer_callback(client, cq["id"], "")
                             await send_queue_selector(client, chat_id)
+
+                        elif data == "show_stats":
+                            await answer_callback(client, cq["id"], "")
+                            await send_stats_selector(client, chat_id)
+
+                        elif data in ("stats_7", "stats_30"):
+                            days = 7 if data == "stats_7" else 30
+                            await answer_callback(client, cq["id"], "📊 Рахую статистику...")
+                            queue = load_subscribers(SUBSCRIBERS_FILE_PATH).get(chat_id)
+                            history = load_history(HISTORY_FILE_PATH)
+                            msg = compute_stats(history, queue, days)
+                            await send_message(BOT_TOKEN, chat_id, msg)
 
                         elif data.startswith("set_queue_"):
                             queue_value = data[len("set_queue_"):]

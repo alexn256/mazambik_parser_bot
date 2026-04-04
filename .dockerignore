@@ -6,4 +6,5 @@ __pycache__
 *.png
 state.json
 subscribers.json
+history.json
 data/
