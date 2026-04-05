@@ -3,7 +3,6 @@
 
 # Mazambik Parser Bot
 
-[![Deploy on Railway](https://railway.com/project/8f906fea-5a1d-493b-9fa8-8b9cf60fd2c4/badge.svg)](https://railway.com/project/8f906fea-5a1d-493b-9fa8-8b9cf60fd2c4)
 
 A Telegram bot that automatically parses power outage schedules from a public Telegram channel. The channel publishes schedules as images — the bot recognizes them via OCR and sends a text representation to you in a private message.
 </div>
