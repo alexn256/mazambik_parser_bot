@@ -29,7 +29,7 @@ def _total_outage_minutes(ranges: list[dict]) -> int:
 
 def _progress_bar(minutes: int) -> str:
     filled = min(round(minutes / BAR_MAX_MINUTES * BAR_BLOCKS), BAR_BLOCKS)
-    return "█" * filled + "░" * (BAR_BLOCKS - filled)
+    return "🟥" * filled + "🟩" * (BAR_BLOCKS - filled)
 
 
 def compute_stats(history: dict, queue: str | None, days: int) -> str:
