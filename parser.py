@@ -2,12 +2,7 @@ import re
 import cv2
 import numpy as np
 
-
-# Queue labels in grid order: row 1 then row 2, left to right
-QUEUE_LABELS = [
-    "1.1", "2.1", "3.1", "4.1", "5.1", "6.1",
-    "1.2", "2.2", "3.2", "4.2", "5.2", "6.2",
-]
+from config import QUEUE_LABELS
 
 # Regex for time ranges: handles "10:00 - 11:30", "10.00 — 11.30", etc.
 TIME_RANGE_RE = re.compile(

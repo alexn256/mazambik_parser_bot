@@ -8,6 +8,7 @@ from config import (
     BOT_TOKEN,
     CHANNEL_USERNAME,
     HISTORY_FILE_PATH,
+    QUEUE_LABELS,
     STATE_FILE_PATH,
     SUBSCRIBERS_FILE_PATH,
     TELETHON_API_HASH,
@@ -38,8 +39,6 @@ logger = logging.getLogger(__name__)
 
 UKRAINE_TZ = timezone(timedelta(hours=3))
 
-QUEUE_LABELS = ["1.1", "1.2", "2.1", "2.2", "3.1", "3.2",
-                "4.1", "4.2", "5.1", "5.2", "6.1", "6.2"]
 
 
 def _time_to_minutes(t: str) -> int:
