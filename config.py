@@ -30,13 +30,3 @@ BOX_MARGIN_PX = 4
 QUEUE_LABELS_ROW1 = ["1.1", "2.1", "3.1", "4.1", "5.1", "6.1"]
 QUEUE_LABELS_ROW2 = ["1.2", "2.2", "3.2", "4.2", "5.2", "6.2"]
 QUEUE_LABELS = QUEUE_LABELS_ROW1 + QUEUE_LABELS_ROW2
-
-# Emoji colors per queue group
-QUEUE_EMOJI = {
-    "1": "\U0001f7e1",  # 🟡
-    "2": "\U0001f7e2",  # 🟢
-    "3": "\U0001f7e0",  # 🟠
-    "4": "\U0001f535",  # 🔵
-    "5": "\U0001f7e4",  # 🟤
-    "6": "\U0001f7e3",  # 🟣
-}
