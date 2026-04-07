@@ -3,3 +3,4 @@ pytesseract>=0.3.10
 opencv-python-headless>=4.8
 httpx>=0.25
 python-dotenv>=1.0
+pytest>=8.0
