@@ -361,12 +361,45 @@ async def poll_commands() -> None:
                                 await answer_callback(client, cq["id"], "✅ Отримуєте повний графік")
                         continue
 
-                    # Handle text commands
+                    # Handle text commands and admin photo uploads
                     message = update.get("message", {})
-                    text = message.get("text", "")
                     chat_id = message.get("chat", {}).get("id")
+                    if not chat_id:
+                        continue
 
-                    if not chat_id or not text:
+                    # Admin can send a photo directly to the bot to force-process it
+                    photo = message.get("photo")
+                    if photo and chat_id == USER_CHAT_ID:
+                        file_id = photo[-1]["file_id"]
+                        logger.info("Admin photo received, processing as schedule...")
+                        await answer_callback(client, "", "")
+                        try:
+                            file_resp = await client.get(
+                                f"https://api.telegram.org/bot{BOT_TOKEN}/getFile",
+                                params={"file_id": file_id},
+                            )
+                            file_path = file_resp.json()["result"]["file_path"]
+                            img_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
+                            img_resp = await client.get(img_url)
+                            import tempfile, os as _os
+                            suffix = _os.path.splitext(file_path)[1] or ".jpg"
+                            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
+                                f.write(img_resp.content)
+                                tmp_path = f.name
+                            now = datetime.now(UKRAINE_TZ)
+                            try:
+                                await process_image(tmp_path, date=now.strftime("%d.%m.%Y"), timestamp=now.strftime("%H:%M"))
+                                await send_message(BOT_TOKEN, chat_id, "✅ Графік оброблено.")
+                            finally:
+                                if _os.path.exists(tmp_path):
+                                    _os.unlink(tmp_path)
+                        except Exception:
+                            logger.exception("Failed to process admin photo")
+                            await send_message(BOT_TOKEN, chat_id, "❌ Помилка обробки фото.")
+                        continue
+
+                    text = message.get("text", "")
+                    if not text:
                         continue
 
                     if text.startswith("/start"):
