@@ -452,6 +452,17 @@ async def poll_commands() -> None:
 
 
 
+async def telethon_keepalive(client: TelegramClient) -> None:
+    """Send a periodic ping to keep the Telethon connection alive."""
+    while True:
+        await asyncio.sleep(300)  # every 5 minutes
+        try:
+            if client.is_connected():
+                await client.get_me()
+        except Exception:
+            logger.warning("Keepalive ping failed")
+
+
 async def run_telethon_with_reconnect(client: TelegramClient) -> None:
     """Keep Telethon connected, reconnecting automatically on disconnect."""
     while True:
@@ -482,6 +493,7 @@ async def main():
 
     await asyncio.gather(
         run_telethon_with_reconnect(client),
+        telethon_keepalive(client),
         poll_commands(),
     )
 

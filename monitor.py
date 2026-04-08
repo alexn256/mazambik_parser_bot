@@ -33,7 +33,13 @@ def _parse_caption_date(caption: str, msg_date: datetime) -> str | None:
 
 def create_client(api_id: int, api_hash: str, session_string: str) -> TelegramClient:
     """Create a Telethon client with a string session."""
-    return TelegramClient(StringSession(session_string), api_id, api_hash)
+    return TelegramClient(
+        StringSession(session_string),
+        api_id,
+        api_hash,
+        connection_retries=-1,
+        retry_delay=1,
+    )
 
 
 def setup_handler(client: TelegramClient, channel: str, callback):
