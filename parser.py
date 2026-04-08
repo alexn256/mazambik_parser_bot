@@ -14,6 +14,9 @@ WATERMARK_RE = re.compile(
     r"(\d{1,2})[:\.](\d{2})\s+(\d{1,2})\.(\d{1,2})\.(\d{4})"
 )
 
+# Regex for date-only watermark: "09.04.2026"
+DATE_ONLY_RE = re.compile(r"(\d{1,2})\.(\d{1,2})\.(\d{4})")
+
 
 def parse_schedule_image(image_path: str) -> dict:
     """Parse a schedule image and return structured data.
@@ -68,6 +71,17 @@ def _extract_watermark(img: np.ndarray) -> tuple[str | None, str | None]:
             timestamp = f"{int(hh):02d}:{mm}"
             date_str = f"{int(day):02d}.{int(month):02d}.{year}"
             return timestamp, date_str
+
+    # Fallback: try to extract date only (no timestamp in watermark)
+    for thresh_val in [160, 170, 180, 190, 150, 140]:
+        _, binary = cv2.threshold(gray, thresh_val, 255, cv2.THRESH_BINARY_INV)
+        scaled = cv2.resize(binary, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
+        text = pytesseract.image_to_string(scaled, lang="ukr", config="--psm 7")
+        match = DATE_ONLY_RE.search(text)
+        if match:
+            day, month, year = match.group(1), match.group(2), match.group(3)
+            date_str = f"{int(day):02d}.{int(month):02d}.{year}"
+            return None, date_str
 
     return None, None
 

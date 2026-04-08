@@ -1,15 +1,17 @@
+import asyncio
 import logging
 import os
 import re
 import tempfile
 from datetime import datetime, timezone, timedelta
 
-from telethon import TelegramClient, events
+from telethon import TelegramClient
 from telethon.sessions import StringSession
 
 logger = logging.getLogger(__name__)
 
 UKRAINE_TZ = timezone(timedelta(hours=3))
+POLL_INTERVAL = 60  # seconds between channel checks
 
 UA_MONTHS = {
     "січня": 1, "лютого": 2, "березня": 3, "квітня": 4,
@@ -31,6 +33,14 @@ def _parse_caption_date(caption: str, msg_date: datetime) -> str | None:
     return f"{day:02d}.{month:02d}.{year}"
 
 
+def _is_schedule_message(msg) -> bool:
+    """Return True if the message is a schedule photo."""
+    if not msg.photo:
+        return False
+    caption = msg.message or ""
+    return "графік" in caption.lower()
+
+
 def create_client(api_id: int, api_hash: str, session_string: str) -> TelegramClient:
     """Create a Telethon client with a string session."""
     return TelegramClient(
@@ -42,43 +52,59 @@ def create_client(api_id: int, api_hash: str, session_string: str) -> TelegramCl
     )
 
 
-async def setup_handler(client: TelegramClient, channel: str, callback):
-    """Register a handler for new photo messages in the given channel.
+async def _process_message(msg, callback) -> None:
+    """Download and process a single schedule message."""
+    local_dt = msg.date.astimezone(UKRAINE_TZ)
+    timestamp = local_dt.strftime("%H:%M")
+    date = _parse_caption_date(msg.message or "", msg.date)
+    logger.info("Processing schedule message id=%d date=%s time=%s", msg.id, date, timestamp)
 
-    callback: async function(image_path, date, timestamp) where date and
-    timestamp are extracted from the message (fallback to None if not found).
+    tmp_dir = tempfile.gettempdir()
+    path = await msg.download_media(file=os.path.join(tmp_dir, "schedule_"))
+    if path is None:
+        logger.warning("Failed to download media for message id=%d", msg.id)
+        return
+    try:
+        await callback(path, date, timestamp)
+    finally:
+        if os.path.exists(path):
+            os.unlink(path)
+
+
+async def monitor_channel(client: TelegramClient, channel: str, callback) -> None:
+    """Poll the channel every POLL_INTERVAL seconds for new schedule messages.
+
+    Tracks the last seen message ID so each message is processed exactly once.
+    On startup, processes any recent messages missed while the bot was offline.
     """
-    # Resolve channel entity so Telethon can match incoming updates by numeric ID.
-    # Without this, NewMessage(chats=username) silently misses events on a fresh session.
-    channel_entity = await client.get_entity(channel)
-    logger.info("Resolved channel entity: id=%s title=%s", channel_entity.id, getattr(channel_entity, "title", "?"))
+    logger.info("Starting channel polling for: %s", channel)
 
-    @client.on(events.NewMessage(chats=channel_entity))
-    async def on_new_message(event):
-        if not event.photo:
-            return
+    last_id: int = 0
 
-        caption = event.message.message or ""
-        if "графік" not in caption.lower():
-            logger.info("Skipping photo without schedule caption")
-            return
+    # Startup: scan recent messages to catch up on anything missed
+    async for msg in client.iter_messages(channel, limit=10):
+        if _is_schedule_message(msg):
+            if last_id == 0:
+                # Process the most recent schedule found at startup
+                await _process_message(msg, callback)
+                last_id = msg.id
+                break
+            last_id = max(last_id, msg.id)
 
-        msg_date = event.message.date  # UTC datetime
-        local_dt = msg_date.astimezone(UKRAINE_TZ)
-        timestamp = local_dt.strftime("%H:%M")
-        date = _parse_caption_date(caption, msg_date)
+    if last_id == 0:
+        # No schedule messages found — get the latest message ID as a baseline
+        async for msg in client.iter_messages(channel, limit=1):
+            last_id = msg.id
+        logger.info("No missed messages, baseline message id=%d", last_id)
 
-        logger.info("New schedule photo: date=%s time=%s", date, timestamp)
+    logger.info("Channel polling active, last_id=%d", last_id)
 
-        tmp_dir = tempfile.gettempdir()
-        path = await event.download_media(file=os.path.join(tmp_dir, "schedule_"))
-
-        if path is None:
-            logger.warning("Failed to download media")
-            return
-
+    while True:
+        await asyncio.sleep(POLL_INTERVAL)
         try:
-            await callback(path, date, timestamp)
-        finally:
-            if os.path.exists(path):
-                os.unlink(path)
+            async for msg in client.iter_messages(channel, min_id=last_id, limit=20):
+                if _is_schedule_message(msg):
+                    await _process_message(msg, callback)
+                last_id = max(last_id, msg.id)
+        except Exception:
+            logger.exception("Error polling channel, will retry in %ds", POLL_INTERVAL)

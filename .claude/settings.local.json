@@ -8,7 +8,8 @@
       "Bash(dpkg -l)",
       "Bash(pip3 install:*)",
       "Bash(python3:*)",
-      "Bash(.venv/bin/python:*)"
+      "Bash(.venv/bin/python:*)",
+      "Bash(.venv/bin/pytest:*)"
     ]
   }
 }

@@ -3,7 +3,6 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 import httpx
-from telethon import TelegramClient
 
 from config import (
     BOT_TOKEN,
@@ -19,7 +18,7 @@ from config import (
 )
 from diff import compute_diff
 from formatter import format_schedule
-from monitor import create_client, setup_handler
+from monitor import create_client, monitor_channel
 from parser import parse_schedule_image
 from sender import broadcast, send_message
 from history import load_history, record_day, save_history
@@ -457,31 +456,6 @@ async def poll_commands() -> None:
 
 
 
-async def telethon_keepalive(client: TelegramClient) -> None:
-    """Send a periodic ping to keep the Telethon connection alive."""
-    while True:
-        await asyncio.sleep(300)  # every 5 minutes
-        try:
-            if client.is_connected():
-                await client.get_me()
-        except Exception:
-            logger.warning("Keepalive ping failed")
-
-
-async def run_telethon_with_reconnect(client: TelegramClient) -> None:
-    """Keep Telethon connected, reconnecting automatically on disconnect."""
-    while True:
-        try:
-            if not client.is_connected():
-                await client.connect()
-                logger.info("Telethon reconnected")
-            await client.run_until_disconnected()
-            logger.warning("Telethon disconnected, reconnecting in 5s...")
-        except Exception:
-            logger.exception("Telethon error, reconnecting in 5s...")
-        await asyncio.sleep(5)
-
-
 async def main():
     # Seed initial subscriber if list is empty
     subs = load_subscribers(SUBSCRIBERS_FILE_PATH)
@@ -490,15 +464,11 @@ async def main():
         logger.info("Seeded initial subscriber: %d", USER_CHAT_ID)
 
     client = create_client(TELETHON_API_ID, TELETHON_API_HASH, TELETHON_SESSION_STRING)
-
-    logger.info("Starting monitor for channel: %s", CHANNEL_USERNAME)
     await client.start()
-    await setup_handler(client, CHANNEL_USERNAME, process_image)
-    logger.info("Bot is running. Waiting for new schedule images...")
+    logger.info("Bot is running.")
 
     await asyncio.gather(
-        run_telethon_with_reconnect(client),
-        telethon_keepalive(client),
+        monitor_channel(client, CHANNEL_USERNAME, process_image),
         poll_commands(),
     )
 
