@@ -144,25 +144,31 @@ def _fixed_grid_boxes(h: int, w: int) -> list[tuple[int, int, int, int]]:
 def _ocr_box(box_img: np.ndarray) -> list[dict]:
     """OCR a single box to extract time ranges.
 
+    Tries multiple preprocessing passes and returns the result with the most
+    detected ranges to reduce sensitivity to JPEG compression artifacts.
+
     Returns list of {"start": "HH:MM", "end": "HH:MM"} dicts.
     """
     import pytesseract
 
-    bh, bw = box_img.shape[:2]
-
-    # Convert to grayscale
     gray = cv2.cvtColor(box_img, cv2.COLOR_BGR2GRAY)
 
-    # Otsu threshold
-    _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    candidates = []
 
-    # Upscale for better OCR
-    scaled = cv2.resize(binary, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
-
-    # OCR
+    # Pass 1: Otsu threshold
+    _, binary_otsu = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    scaled = cv2.resize(binary_otsu, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
     text = pytesseract.image_to_string(scaled, lang="ukr", config="--psm 6")
+    candidates.append(_parse_time_ranges(text))
 
-    return _parse_time_ranges(text)
+    # Pass 2: fixed threshold (better when background is uneven)
+    _, binary_fixed = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY)
+    scaled2 = cv2.resize(binary_fixed, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
+    text2 = pytesseract.image_to_string(scaled2, lang="ukr", config="--psm 6")
+    candidates.append(_parse_time_ranges(text2))
+
+    # Return the result with the most detected ranges
+    return max(candidates, key=len)
 
 
 def _parse_time_ranges(text: str) -> list[dict]:
