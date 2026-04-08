@@ -397,11 +397,17 @@ async def poll_commands() -> None:
                     if not chat_id:
                         continue
 
-                    # Admin can send a photo directly to the bot to force-process it
+                    # Admin can send a photo or document to the bot to force-process it
+                    # Documents are preferred — Telegram doesn't compress them
                     photo = message.get("photo")
-                    if photo and chat_id == USER_CHAT_ID:
-                        file_id = photo[-1]["file_id"]
-                        logger.info("Admin photo received, processing as schedule...")
+                    document = message.get("document")
+                    if chat_id == USER_CHAT_ID and (photo or document):
+                        if document:
+                            file_id = document["file_id"]
+                            logger.info("Admin document received, processing as schedule...")
+                        else:
+                            file_id = photo[-1]["file_id"]
+                            logger.info("Admin photo received, processing as schedule...")
                         await answer_callback(client, "", "")
                         try:
                             file_resp = await client.get(
