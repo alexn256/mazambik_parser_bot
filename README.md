@@ -150,5 +150,5 @@ Recommended options:
 
 - **Railway** — $5/mo free credit, sufficient for this bot
 - **Oracle Cloud** — always-free ARM instance
-- **VPS** — any cheap VPS with Docker.
+- **VPS** — any cheap VPS with Docker
 
