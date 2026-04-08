@@ -42,14 +42,18 @@ def create_client(api_id: int, api_hash: str, session_string: str) -> TelegramCl
     )
 
 
-def setup_handler(client: TelegramClient, channel: str, callback):
+async def setup_handler(client: TelegramClient, channel: str, callback):
     """Register a handler for new photo messages in the given channel.
 
     callback: async function(image_path, date, timestamp) where date and
     timestamp are extracted from the message (fallback to None if not found).
     """
+    # Resolve channel entity so Telethon can match incoming updates by numeric ID.
+    # Without this, NewMessage(chats=username) silently misses events on a fresh session.
+    channel_entity = await client.get_entity(channel)
+    logger.info("Resolved channel entity: id=%s title=%s", channel_entity.id, getattr(channel_entity, "title", "?"))
 
-    @client.on(events.NewMessage(chats=channel))
+    @client.on(events.NewMessage(chats=channel_entity))
     async def on_new_message(event):
         if not event.photo:
             return

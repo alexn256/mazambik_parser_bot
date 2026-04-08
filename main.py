@@ -490,7 +490,7 @@ async def main():
         logger.info("Seeded initial subscriber: %d", USER_CHAT_ID)
 
     client = create_client(TELETHON_API_ID, TELETHON_API_HASH, TELETHON_SESSION_STRING)
-    setup_handler(client, CHANNEL_USERNAME, process_image)
+    await setup_handler(client, CHANNEL_USERNAME, process_image)
 
     logger.info("Starting monitor for channel: %s", CHANNEL_USERNAME)
     await client.start()
