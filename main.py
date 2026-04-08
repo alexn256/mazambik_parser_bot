@@ -287,7 +287,7 @@ async def poll_commands() -> None:
             try:
                 resp = await client.get(
                     f"{url_base}/getUpdates",
-                    params={"offset": offset, "timeout": 30, "allowed_updates": ["message", "callback_query"]},
+                    params={"offset": offset, "timeout": 30, "allowed_updates": ["message", "callback_query", "channel_post"]},
                 )
                 if resp.status_code != 200:
                     await asyncio.sleep(5)
@@ -296,6 +296,35 @@ async def poll_commands() -> None:
                 updates = resp.json().get("result", [])
                 for update in updates:
                     offset = update["update_id"] + 1
+
+                    # Handle channel post (bot must be admin of the channel)
+                    if "channel_post" in update:
+                        post = update["channel_post"]
+                        caption = post.get("caption") or ""
+                        if post.get("photo") and "графік" in caption.lower():
+                            file_id = post["photo"][-1]["file_id"]
+                            logger.info("Channel post with schedule received, processing...")
+                            try:
+                                file_resp = await client.get(
+                                    f"https://api.telegram.org/bot{BOT_TOKEN}/getFile",
+                                    params={"file_id": file_id},
+                                )
+                                file_path_tg = file_resp.json()["result"]["file_path"]
+                                img_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path_tg}"
+                                img_resp = await client.get(img_url)
+                                import tempfile, os as _os
+                                suffix = _os.path.splitext(file_path_tg)[1] or ".jpg"
+                                with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
+                                    f.write(img_resp.content)
+                                    tmp_path = f.name
+                                try:
+                                    await process_image(tmp_path)
+                                finally:
+                                    if _os.path.exists(tmp_path):
+                                        _os.unlink(tmp_path)
+                            except Exception:
+                                logger.exception("Failed to process channel post photo")
+                        continue
 
                     # Handle inline button press
                     if "callback_query" in update:
