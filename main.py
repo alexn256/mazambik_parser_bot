@@ -143,7 +143,7 @@ async def send_tomorrow_schedule(chat_id: int) -> None:
     await send_message(BOT_TOKEN, chat_id, format_schedule(parsed, diff=None, is_first=True, queue_filter=queue))
 
 
-async def process_image(image_path: str, date: str | None = None, timestamp: str | None = None) -> None:
+async def process_image(image_path: str, date: str | None = None, timestamp: str | None = None) -> bool:
     """Full pipeline: parse image -> diff -> format -> send -> save state."""
     logger.info("Processing image: %s", image_path)
 
@@ -153,7 +153,7 @@ async def process_image(image_path: str, date: str | None = None, timestamp: str
         logger.exception("Failed to parse schedule image")
         subs = load_subscribers(SUBSCRIBERS_FILE_PATH)
         await broadcast(BOT_TOKEN, list(subs.keys()), "❌ Не вдалось розпізнати графік")
-        return
+        return False
 
     # Use date/timestamp from message if watermark OCR failed
     if date and not parsed["date"]:
@@ -172,12 +172,12 @@ async def process_image(image_path: str, date: str | None = None, timestamp: str
         diff = compute_diff(state[parsed_date]["schedule"], parsed["schedule"])
         if not diff:
             logger.info("No changes detected, skipping notification")
-            return
+            return False
 
     subscribers = load_subscribers(SUBSCRIBERS_FILE_PATH)
     if not subscribers:
         logger.warning("No subscribers, skipping send")
-        return
+        return False
 
     for chat_id, queue in subscribers.items():
         if not first_update and diff is not None and queue:
@@ -200,6 +200,8 @@ async def process_image(image_path: str, date: str | None = None, timestamp: str
             save_history(record_day(history, parsed_date, parsed["schedule"]), HISTORY_FILE_PATH)
         except Exception:
             logger.exception("Failed to save history")
+
+    return True
 
 
 async def send_start_message(client: httpx.AsyncClient, chat_id: int) -> None:
@@ -388,8 +390,11 @@ async def poll_commands() -> None:
                                 tmp_path = f.name
                             now = datetime.now(UKRAINE_TZ)
                             try:
-                                await process_image(tmp_path, date=now.strftime("%d.%m.%Y"), timestamp=now.strftime("%H:%M"))
-                                await send_message(BOT_TOKEN, chat_id, "✅ Графік оброблено.")
+                                changed = await process_image(tmp_path, date=now.strftime("%d.%m.%Y"), timestamp=now.strftime("%H:%M"))
+                                if changed:
+                                    await send_message(BOT_TOKEN, chat_id, "✅ Графік оброблено.")
+                                else:
+                                    await send_message(BOT_TOKEN, chat_id, "ℹ️ Змін не виявлено, підписники не сповіщені.")
                             finally:
                                 if _os.path.exists(tmp_path):
                                     _os.unlink(tmp_path)
