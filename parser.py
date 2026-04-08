@@ -186,10 +186,17 @@ def _ocr_box(box_img: np.ndarray) -> list[dict]:
 
 
 def _parse_time_ranges(text: str) -> list[dict]:
-    """Parse OCR text into structured time ranges."""
+    """Parse OCR text into structured time ranges.
+
+    Discards ranges where start >= end as OCR artifacts.
+    """
     matches = TIME_RANGE_RE.findall(text)
     ranges = []
     for h1, m1, h2, m2 in matches:
+        start_min = int(h1) * 60 + int(m1)
+        end_min = int(h2) * 60 + int(m2)
+        if start_min >= end_min:
+            continue
         start = f"{int(h1):02d}:{m1}"
         end = f"{int(h2):02d}:{m2}"
         ranges.append({"start": start, "end": end})

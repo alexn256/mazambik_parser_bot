@@ -72,8 +72,6 @@ async def _process_message(msg, callback) -> None:
 
 
 async def monitor_channel(client: TelegramClient, channel: str, callback) -> None:
-    me = await client.get_me()
-    logger.info("Telethon session: name=%s is_bot=%s", getattr(me, 'first_name', '?'), getattr(me, 'bot', '?'))
     """Poll the channel every POLL_INTERVAL seconds for new schedule messages.
 
     Tracks the last seen message ID so each message is processed exactly once.
