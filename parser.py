@@ -181,6 +181,15 @@ def _ocr_box(box_img: np.ndarray) -> list[dict]:
     text2 = pytesseract.image_to_string(scaled2, lang="ukr", config="--psm 6")
     candidates.append(_parse_time_ranges(text2))
 
+    # Pass 3: adaptive threshold — robust to JPEG compression artifacts and colored backgrounds
+    denoised = cv2.fastNlMeansDenoising(gray, h=10)
+    binary_adapt = cv2.adaptiveThreshold(
+        denoised, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 10
+    )
+    scaled3 = cv2.resize(binary_adapt, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
+    text3 = pytesseract.image_to_string(scaled3, lang="ukr", config="--psm 6")
+    candidates.append(_parse_time_ranges(text3))
+
     # Return the result with the most detected ranges
     return max(candidates, key=len)
 
