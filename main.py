@@ -490,10 +490,10 @@ async def main():
         logger.info("Seeded initial subscriber: %d", USER_CHAT_ID)
 
     client = create_client(TELETHON_API_ID, TELETHON_API_HASH, TELETHON_SESSION_STRING)
-    await setup_handler(client, CHANNEL_USERNAME, process_image)
 
     logger.info("Starting monitor for channel: %s", CHANNEL_USERNAME)
     await client.start()
+    await setup_handler(client, CHANNEL_USERNAME, process_image)
     logger.info("Bot is running. Waiting for new schedule images...")
 
     await asyncio.gather(
