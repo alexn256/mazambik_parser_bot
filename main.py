@@ -493,7 +493,7 @@ async def main():
         logger.info("Seeded initial subscriber: %d", USER_CHAT_ID)
 
     client = create_client(TELETHON_API_ID, TELETHON_API_HASH, TELETHON_SESSION_STRING)
-    await client.start()
+    await client.connect()
     logger.info("Bot is running.")
 
     await asyncio.gather(
