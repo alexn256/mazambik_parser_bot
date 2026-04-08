@@ -81,21 +81,10 @@ async def monitor_channel(client: TelegramClient, channel: str, callback) -> Non
 
     last_id: int = 0
 
-    # Startup: scan recent messages to catch up on anything missed
-    async for msg in client.iter_messages(channel, limit=10):
-        if _is_schedule_message(msg):
-            if last_id == 0:
-                # Process the most recent schedule found at startup
-                await _process_message(msg, callback)
-                last_id = msg.id
-                break
-            last_id = max(last_id, msg.id)
-
-    if last_id == 0:
-        # No schedule messages found — get the latest message ID as a baseline
-        async for msg in client.iter_messages(channel, limit=1):
-            last_id = msg.id
-        logger.info("No missed messages, baseline message id=%d", last_id)
+    # Set baseline to the latest message ID — do not reprocess historical messages.
+    # If a message was missed during downtime, admin can upload it manually.
+    async for msg in client.iter_messages(channel, limit=1):
+        last_id = msg.id
 
     logger.info("Channel polling active, last_id=%d", last_id)
 
