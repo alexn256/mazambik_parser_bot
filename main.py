@@ -1,7 +1,5 @@
 import asyncio
 import logging
-import os
-import tempfile
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -21,7 +19,7 @@ from config import (
 )
 from diff import compute_diff
 from formatter import format_schedule
-from monitor import create_client, setup_handler, _parse_caption_date
+from monitor import create_client, setup_handler
 from parser import parse_schedule_image
 from sender import broadcast, send_message
 from history import load_history, record_day, save_history
@@ -419,39 +417,6 @@ async def poll_commands() -> None:
                 await asyncio.sleep(5)
 
 
-async def catch_up_on_startup(client: TelegramClient) -> None:
-    """Scan channel for latest schedule and process it if state is missing or outdated."""
-    logger.info("Catch-up: scanning channel for latest schedule...")
-    cutoff = datetime.now(UKRAINE_TZ) - timedelta(hours=36)
-    try:
-        async for message in client.iter_messages(CHANNEL_USERNAME, limit=20):
-            if message.date.astimezone(UKRAINE_TZ) < cutoff:
-                break
-            if not message.photo:
-                continue
-            caption = message.message or ""
-            if "графік" not in caption.lower():
-                continue
-
-            msg_date = message.date
-            local_dt = msg_date.astimezone(UKRAINE_TZ)
-            date = _parse_caption_date(caption, msg_date)
-            timestamp = local_dt.strftime("%H:%M")
-
-            logger.info("Catch-up: found schedule date=%s time=%s, processing...", date, timestamp)
-            path = await message.download_media(file=os.path.join(tempfile.gettempdir(), "schedule_catchup_"))
-            if path is None:
-                logger.warning("Catch-up: download failed")
-                return
-            try:
-                await process_image(path, date=date, timestamp=timestamp)
-                logger.info("Catch-up: done")
-            finally:
-                if os.path.exists(path):
-                    os.unlink(path)
-            return
-    except Exception:
-        logger.exception("Catch-up: error scanning channel")
 
 
 async def run_telethon_with_reconnect(client: TelegramClient) -> None:
@@ -461,7 +426,6 @@ async def run_telethon_with_reconnect(client: TelegramClient) -> None:
             if not client.is_connected():
                 await client.connect()
                 logger.info("Telethon reconnected")
-                await catch_up_on_startup(client)
             await client.run_until_disconnected()
             logger.warning("Telethon disconnected, reconnecting in 5s...")
         except Exception:
@@ -482,8 +446,6 @@ async def main():
     logger.info("Starting monitor for channel: %s", CHANNEL_USERNAME)
     await client.start()
     logger.info("Bot is running. Waiting for new schedule images...")
-
-    await catch_up_on_startup(client)
 
     await asyncio.gather(
         run_telethon_with_reconnect(client),
