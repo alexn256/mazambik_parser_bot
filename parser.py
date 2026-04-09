@@ -204,7 +204,9 @@ def _parse_time_ranges(text: str) -> list[dict]:
     for h1, m1, h2, m2 in matches:
         start_min = int(h1) * 60 + int(m1)
         end_min = int(h2) * 60 + int(m2)
-        if start_min >= end_min:
+        # Treat 00:00 end as midnight (1440 min) to allow ranges like 23:00 – 00:00
+        effective_end = 1440 if end_min == 0 else end_min
+        if start_min >= effective_end:
             continue
         start = f"{int(h1):02d}:{m1}"
         end = f"{int(h2):02d}:{m2}"

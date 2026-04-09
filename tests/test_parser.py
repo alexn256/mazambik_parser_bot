@@ -42,3 +42,20 @@ class TestParseTimeRanges:
             {"start": "11:00", "end": "12:30"},
             {"start": "19:00", "end": "20:00"},
         ]
+
+    def test_midnight_wrap_range(self):
+        # 23:00 – 00:00 is a valid range (midnight next day)
+        assert _parse_time_ranges("23:00 - 00:00") == [{"start": "23:00", "end": "00:00"}]
+
+    def test_midnight_wrap_half_hour(self):
+        assert _parse_time_ranges("23:30 - 00:00") == [{"start": "23:30", "end": "00:00"}]
+
+    def test_midnight_wrap_with_other_ranges(self):
+        text = "05:00 - 07:30\n11:00 - 12:30\n17:00 - 19:00\n23:00 - 00:00"
+        result = _parse_time_ranges(text)
+        assert result == [
+            {"start": "05:00", "end": "07:30"},
+            {"start": "11:00", "end": "12:30"},
+            {"start": "17:00", "end": "19:00"},
+            {"start": "23:00", "end": "00:00"},
+        ]
