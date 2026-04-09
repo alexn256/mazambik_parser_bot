@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -423,8 +424,15 @@ async def poll_commands() -> None:
                                 f.write(img_resp.content)
                                 tmp_path = f.name
                             now = datetime.now(UKRAINE_TZ)
+                            caption = message.get("caption") or ""
+                            caption_date_match = re.search(r"\b(\d{1,2})\.(\d{1,2})\.(\d{4})\b", caption)
+                            if caption_date_match:
+                                d, m, y = caption_date_match.group(1), caption_date_match.group(2), caption_date_match.group(3)
+                                forced_date = f"{int(d):02d}.{int(m):02d}.{y}"
+                            else:
+                                forced_date = now.strftime("%d.%m.%Y")
                             try:
-                                changed = await process_image(tmp_path, date=now.strftime("%d.%m.%Y"), timestamp=now.strftime("%H:%M"))
+                                changed = await process_image(tmp_path, date=forced_date, timestamp=now.strftime("%H:%M"))
                                 if changed:
                                     await send_message(BOT_TOKEN, chat_id, "✅ Графік оброблено.")
                                 else:
