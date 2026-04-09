@@ -39,10 +39,9 @@ def _queue_block(q_num: int, schedule: dict) -> str:
 
     header = f"{emoji * 6} {q_num} черга {emoji * 6}"
 
-    # Subheader: each label centered within its column
-    col1_h = label1.center(_CELL)
-    col2_h = label2.center(_CELL)
-    subheader = col1_h + _SEP + col2_h
+    # Subheader: label1 at left edge, label2 at right edge (space-between)
+    total_w = _CELL * 2 + len(_SEP)
+    subheader = label1 + " " * (total_w - len(label1) - len(label2)) + label2
 
     if not ranges1 and not ranges2:
         total_w = _CELL * 2 + len(_SEP)
