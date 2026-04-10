@@ -2,9 +2,9 @@ from datetime import datetime
 
 
 MINUTES_IN_DAY = 24 * 60
-BAR_BLOCKS = 10
-# Scale: full bar = 12 hours (realistic max outage)
-BAR_MAX_MINUTES = 12 * 60
+BAR_BLOCKS = 12
+# Scale: full bar = 24 hours so the bar is proportional to the full day
+BAR_MAX_MINUTES = MINUTES_IN_DAY
 
 
 def _date_sort_key(date_str: str) -> datetime:
