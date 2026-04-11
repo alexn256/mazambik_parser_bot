@@ -1,154 +1,79 @@
 <div align="center">
-  <img src="logo.png" alt="Mazambik Parser Bot" width="120"/>
+  <img src="logo.png" alt="Svitlo Kremen Bot" width="120"/>
 
-# Mazambik Parser Bot
+# Svitlo Kremen Bot
 
+Telegram-бот для відстеження графіків відключення електроенергії по Кременчуку.
+Автоматично читає розклади з каналу [@mo3ambik_gpv_1_2](https://t.me/mo3ambik_gpv_1_2), розпізнає їх через OCR і надсилає зручний текстовий розклад підписникам.
 
-A Telegram bot that automatically parses power outage schedules from a public Telegram channel. The channel publishes schedules as images — the bot recognizes them via OCR and sends a text representation to you in a private message.
+**[@svitlo_kremen_bot](https://t.me/svitlo_kremen_bot)**
+
 </div>
 
-## Features
+## Що вміє бот
 
-- **Image parsing** — recognizes 12 queues (6 × 2 sub-queues) with outage time ranges
-- **Change tracking** — if multiple schedules are published during the day, shows what changed (diff)
-- **Automatic monitoring** — listens to the channel in real time, reacts to new images
+### Автоматичне отримання графіків
+Бот стежить за каналом у реальному часі. Щойно з'являється нове зображення з розкладом — бот розпізнає його та розсилає всім підписникам.
 
-### Example output
+### Персональні сповіщення по черзі
+Кожен підписник обирає свою підчергу (наприклад, `3.2`). Бот надсилає лише ту інформацію, яка стосується саме цієї черги — з прогрес-баром та кількістю годин без світла.
+
+### Відстеження змін
+Якщо протягом дня публікується оновлений графік, бот показує що саме змінилось:
 
 ```
-⚡ Графік відключень на 03.04.2026 (станом на 10:43)
-
-🟡 1 черга
-1.1 → 10:00 – 11:30, 16:00 – 18:00
-1.2 → 10:30 – 12:00, 16:30 – 18:00
-🟢 2 черга
-2.1 → 11:00 – 12:30
-2.2 → 11:30 – 13:00
-🟠 3 черга
-3.1 → 12:00 – 13:30
-3.2 → 12:00 – 14:00
-🔵 4 черга
-4.1 → 13:00 – 14:30
-4.2 → немає відключень
-🟤 5 черга
-5.1 → 08:00 – 09:30
-5.2 → 08:30 – 10:00
-🟣 6 черга
-6.1 → 09:00 – 10:30
-6.2 → 09:30 – 11:00
-
 📋 Зміни:
 ❌ Черга 1.1: прибрали 16:00–18:00
 ⏱ Черга 2.2: скоротили (було 11:30–13:00 → стало 11:30–12:30)
+➕ Черга 5.1: додали 22:00–23:30
+```
+
+### Поточний графік і графік на завтра
+Користувач може в будь-який момент запросити розклад на сьогодні або на завтра (якщо вже опубліковано).
+
+### Що зараз?
+Бот відповідає в реальному часі: є світло чи ні, скільки часу залишилось до наступного відключення або увімкнення.
+
+```
+💡 Зараз є світло · черга 3.2
+до 14:30 (ще 1 год 20 хв)
+Далі: відключення 14:30 – 16:00
+```
+
+### Статистика
+Перегляд годин відключень за останні 7 або 30 днів по своїй черзі.
+
+```
+📊 Статистика за 7 днів — черга 3.2
+
+10.04.2026  🟥🟥🟥🟩🟩🟩🟩🟩🟩🟩🟩🟩  6.0 год
+09.04.2026  🟥🟥🟩🟩🟩🟩🟩🟩🟩🟩🟩🟩  4.0 год
+
+Середнє: 5.0 год/день
+```
+
+## Як виглядає повний графік
+
+```
+⚡ Графік відключень на 10.04.2026 (станом на 20:00)
+
+🟡🟡🟡🟡🟡🟡 1 черга 🟡🟡🟡🟡🟡🟡
+1.1                  1.2
+00:00–02:30  00:30–03:00
+07:00–09:30  07:30–10:00
+13:00–14:30  13:30–15:00
+19:00–20:30  19:30–20:30
+
+🟢🟢🟢🟢🟢🟢 2 черга 🟢🟢🟢🟢🟢🟢
+2.1                  2.2
+02:00–03:30  02:30–04:00
+08:00–10:30  08:30–11:00
+...
 ```
 
 ## Tech stack
 
 - Python 3.12
-- OpenCV + Tesseract OCR (image parsing)
-- Telethon (channel monitoring)
-- Telegram Bot API via httpx (sending messages)
-
-## Quick start
-
-### 1. System dependencies
-
-```bash
-sudo apt-get install tesseract-ocr tesseract-ocr-ukr
-```
-
-### 2. Python dependencies
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-### 3. Configuration
-
-Copy `.env.example` to `.env` and fill in the values:
-
-```bash
-cp .env.example .env
-```
-
-| Variable | Where to get it |
-|---|---|
-| `TELETHON_API_ID` | https://my.telegram.org → API development tools |
-| `TELETHON_API_HASH` | Same page |
-| `TELETHON_SESSION_STRING` | Run `python generate_session.py` |
-| `BOT_TOKEN` | @BotFather in Telegram |
-| `CHANNEL_USERNAME` | Channel username without `@` |
-| `USER_CHAT_ID` | Your numeric Telegram ID (get it via @userinfobot) |
-
-### 4. Generate session string (one-time)
-
-```bash
-python generate_session.py
-```
-
-The script will ask for your phone number and confirmation code. Paste the resulting string into `TELETHON_SESSION_STRING` in `.env`.
-
-### 5. Run
-
-```bash
-python main.py
-```
-
-### Docker
-
-```bash
-docker build -t mazambik-bot .
-docker run -d --restart=unless-stopped --env-file .env --name mazambik-bot mazambik-bot
-```
-
-The `--restart=unless-stopped` flag ensures the bot automatically restarts after server reboots.
-
-**Useful commands:**
-
-```bash
-# View logs
-docker logs -f mazambik-bot
-
-# Stop the bot
-docker stop mazambik-bot
-
-# Start after manual stop
-docker start mazambik-bot
-
-# Rebuild and redeploy after code changes
-docker stop mazambik-bot && docker rm mazambik-bot
-docker build -t mazambik-bot . && docker run -d --restart=unless-stopped --env-file .env --name mazambik-bot mazambik-bot
-```
-
-## Testing the parser
-
-You can test the parser standalone on a sample image:
-
-```bash
-python parser.py photo_2026-04-03_10-46-24.jpg
-```
-
-## Project structure
-
-```
-config.py           — configuration from .env
-main.py             — entry point
-monitor.py          — Telegram channel monitoring (Telethon)
-parser.py           — image parsing (OpenCV + Tesseract)
-state.py            — state management (JSON)
-diff.py             — schedule diff computation
-formatter.py        — message formatting
-sender.py           — sending via Bot API
-generate_session.py — Telethon session string generator
-```
-
-## Deployment
-
-Recommended options:
-
-- **Railway** — $5/mo free credit, sufficient for this bot
-- **Oracle Cloud** — always-free ARM instance
-- **VPS** — any cheap VPS with Docker
-
+- OpenCV + Tesseract OCR
+- Telethon (моніторинг каналу)
+- Telegram Bot API
