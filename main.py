@@ -119,15 +119,11 @@ async def send_current_schedule(chat_id: int) -> None:
     """Send today's schedule (or latest if today's not available) to a single user."""
     state = load_state(STATE_FILE_PATH)
     today = datetime.now(UKRAINE_TZ).strftime("%d.%m.%Y")
-    if today in state:
-        date, entry = today, state[today]
-    else:
-        result = get_latest_state(state)
-        if not result:
-            await send_message(BOT_TOKEN, chat_id,
-                "ℹ️ Графік ще не отримано. Очікуйте публікації у каналі.")
-            return
-        date, entry = result
+    if today not in state:
+        await send_message(BOT_TOKEN, chat_id,
+            "ℹ️ Графік на сьогодні ще не отримано. Очікуйте публікації у каналі.")
+        return
+    date, entry = today, state[today]
     queue = load_subscribers(SUBSCRIBERS_FILE_PATH).get(chat_id)
     parsed = {"date": date, "timestamp": entry.get("last_timestamp"), "schedule": entry["schedule"]}
     await send_message(BOT_TOKEN, chat_id, format_schedule(parsed, diff=None, is_first=True, queue_filter=queue))
