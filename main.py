@@ -1,5 +1,7 @@
 import asyncio
+import json
 import logging
+import os
 import re
 from datetime import datetime, timedelta, timezone
 
@@ -205,39 +207,43 @@ async def process_image(image_path: str, date: str | None = None, timestamp: str
 
 
 async def send_start_message(client: httpx.AsyncClient, chat_id: int) -> None:
-    """Send welcome message with inline buttons."""
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    await client.post(url, json={
-        "chat_id": chat_id,
-        "text": (
-            "Привіт! Цей бот надсилає графік відключень електроенергії.\n\n"
-            "📋 Поточний графік — розклад на сьогодні\n"
-            "📅 Графік на завтра — якщо вже опубліковано\n"
-            "⚡ Що зараз? — є світло чи ні прямо зараз\n"
-            "⚙️ Моя черга — персональні сповіщення по своїй черзі\n"
-            "📊 Статистика — години відключень за тиждень/місяць\n\n"
-            "З побажаннями та зауваженнями звертайтесь до @M_AHTS."
-        ),
-        "reply_markup": {
-            "inline_keyboard": [
-                [
-                    {"text": "✅ Підписатись", "callback_data": "subscribe"},
-                    {"text": "❌ Відписатись", "callback_data": "unsubscribe"},
-                ],
-                [
-                    {"text": "📋 Поточний графік", "callback_data": "show_current"},
-                    {"text": "📅 Графік на завтра", "callback_data": "show_tomorrow"},
-                ],
-                [
-                    {"text": "⚡ Що зараз?", "callback_data": "show_status"},
-                ],
-                [
-                    {"text": "⚙️ Моя черга", "callback_data": "select_queue"},
-                    {"text": "📊 Статистика", "callback_data": "show_stats"},
-                ],
-            ]
-        }
-    })
+    """Send welcome message with bot image and inline buttons."""
+    keyboard = {
+        "inline_keyboard": [
+            [
+                {"text": "✅ Підписатись", "callback_data": "subscribe"},
+                {"text": "❌ Відписатись", "callback_data": "unsubscribe"},
+            ],
+            [
+                {"text": "📋 Поточний графік", "callback_data": "show_current"},
+                {"text": "📅 Графік на завтра", "callback_data": "show_tomorrow"},
+            ],
+            [
+                {"text": "⚡ Що зараз?", "callback_data": "show_status"},
+            ],
+            [
+                {"text": "⚙️ Моя черга", "callback_data": "select_queue"},
+                {"text": "📊 Статистика", "callback_data": "show_stats"},
+            ],
+        ]
+    }
+    caption = (
+        "Привіт! Цей бот надсилає графік відключень електроенергії.\n\n"
+        "📋 Поточний графік — розклад на сьогодні\n"
+        "📅 Графік на завтра — якщо вже опубліковано\n"
+        "⚡ Що зараз? — є світло чи ні прямо зараз\n"
+        "⚙️ Моя черга — персональні сповіщення по своїй черзі\n"
+        "📊 Статистика — години відключень за тиждень/місяць\n\n"
+        "З побажаннями та зауваженнями звертайтесь до @M_AHTS."
+    )
+    image_path = os.path.join(os.path.dirname(__file__), "assets", "bot_title.png")
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
+    with open(image_path, "rb") as f:
+        await client.post(url, data={
+            "chat_id": chat_id,
+            "caption": caption,
+            "reply_markup": json.dumps(keyboard),
+        }, files={"photo": ("bot_title.png", f, "image/png")})
 
 
 async def send_queue_selector(client: httpx.AsyncClient, chat_id: int) -> None:

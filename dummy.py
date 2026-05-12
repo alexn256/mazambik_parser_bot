@@ -18,8 +18,8 @@ from state import load_state
 from datetime import datetime
 
 IMAGES = {
-    "first": "photo_2026-04-03_10-46-24.jpg",
-    "second": "photo_2026-04-03_11-50-24.jpg",
+    "first": "assets/photo_2026-04-03_10-46-24.jpg",
+    "second": "assets/photo_2026-04-03_11-50-24.jpg",
 }
 
 
