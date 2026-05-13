@@ -103,6 +103,7 @@ async def send_current_status(chat_id: int) -> None:
             lines.append(f"Далі: світло з {current_outage['end']} до {next_outage['start']}")
         else:
             lines.append(f"Далі: світло з {current_outage['end']} до кінця дня")
+        image_name = "power_off.png"
     else:
         next_outage = _find_next_range(ranges, now_m)
         if next_outage:
@@ -113,8 +114,16 @@ async def send_current_status(chat_id: int) -> None:
         else:
             lines.append(f"💡 Зараз є світло · черга {queue}")
             lines.append("Відключень більше не заплановано на сьогодні")
+        image_name = "power_on.png"
 
-    await send_message(BOT_TOKEN, chat_id, "\n".join(lines))
+    image_path = os.path.join(os.path.dirname(__file__), "assets", image_name)
+    async with httpx.AsyncClient(timeout=30) as client:
+        with open(image_path, "rb") as f:
+            await client.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
+                data={"chat_id": chat_id, "caption": "\n".join(lines)},
+                files={"photo": (image_name, f, "image/png")},
+            )
 
 
 async def send_current_schedule(chat_id: int) -> None:
@@ -219,7 +228,7 @@ async def send_start_message(client: httpx.AsyncClient, chat_id: int) -> None:
                 {"text": "📅 Графік на завтра", "callback_data": "show_tomorrow"},
             ],
             [
-                {"text": "⚡ Що зараз?", "callback_data": "show_status"},
+                {"text": "⚡ Є світло зараз?", "callback_data": "show_status"},
             ],
             [
                 {"text": "⚙️ Моя черга", "callback_data": "select_queue"},
@@ -231,7 +240,7 @@ async def send_start_message(client: httpx.AsyncClient, chat_id: int) -> None:
         "Привіт! Цей бот надсилає графік відключень електроенергії.\n\n"
         "📋 Поточний графік — розклад на сьогодні\n"
         "📅 Графік на завтра — якщо вже опубліковано\n"
-        "⚡ Що зараз? — є світло чи ні прямо зараз\n"
+        "⚡ Є світло зараз? — поточний статус прямо зараз\n"
         "⚙️ Моя черга — персональні сповіщення по своїй черзі\n"
         "📊 Статистика — години відключень за тиждень/місяць\n\n"
         "З побажаннями та зауваженнями звертайтесь до @M_AHTS."
