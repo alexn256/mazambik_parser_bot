@@ -54,10 +54,11 @@ def compute_diff(old_schedule: dict, new_schedule: dict) -> list[dict]:
                 if new_key in matched_new:
                     continue
                 new_start, new_end = _parse_range_key(new_key)
-                # Check overlap
-                if old_start <= new_end and new_start <= old_end:
+                # Check overlap (in minutes: end "00:00" means midnight)
+                if (_to_minutes(old_start) <= _end_minutes(new_end)
+                        and _to_minutes(new_start) <= _end_minutes(old_end)):
                     # These ranges overlap — it's a modification
-                    if _to_minutes(new_end) < _to_minutes(old_end):
+                    if _end_minutes(new_end) < _end_minutes(old_end):
                         changes.append({
                             "queue": queue,
                             "type": "shortened",
@@ -66,7 +67,7 @@ def compute_diff(old_schedule: dict, new_schedule: dict) -> list[dict]:
                                 f"(було {old_key} → стало {new_key})"
                             ),
                         })
-                    elif _to_minutes(new_end) > _to_minutes(old_end):
+                    elif _end_minutes(new_end) > _end_minutes(old_end):
                         changes.append({
                             "queue": queue,
                             "type": "extended",
@@ -122,3 +123,9 @@ def _to_minutes(time_str: str) -> int:
     """Convert HH:MM string to minutes since midnight."""
     h, m = time_str.split(":")
     return int(h) * 60 + int(m)
+
+
+def _end_minutes(time_str: str) -> int:
+    """Range END as minutes: '00:00' means midnight (1440), not day start."""
+    minutes = _to_minutes(time_str)
+    return 24 * 60 if minutes == 0 else minutes

@@ -91,7 +91,9 @@ async def monitor_channel(client: TelegramClient, channel: str, callback) -> Non
     while True:
         await asyncio.sleep(POLL_INTERVAL)
         try:
-            async for msg in client.iter_messages(channel, min_id=last_id, limit=20):
+            # reverse=True: oldest first, so a post and its correction arriving
+            # within one poll window are processed in publication order
+            async for msg in client.iter_messages(channel, min_id=last_id, limit=20, reverse=True):
                 if _is_schedule_message(msg):
                     await _process_message(msg, callback)
                 last_id = max(last_id, msg.id)

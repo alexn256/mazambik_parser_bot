@@ -21,10 +21,14 @@ def _total_outage_minutes(ranges: list[dict]) -> int:
         try:
             h1, m1 = map(int, r["start"].split(":"))
             h2, m2 = map(int, r["end"].split(":"))
-            total += (h2 * 60 + m2) - (h1 * 60 + m1)
+            start = h1 * 60 + m1
+            end = h2 * 60 + m2
+            if end == 0:
+                end = MINUTES_IN_DAY  # end "00:00" means midnight (23:00–00:00)
+            total += max(end - start, 0)
         except (ValueError, KeyError):
             pass
-    return max(total, 0)
+    return total
 
 
 def _progress_bar(minutes: int) -> str:

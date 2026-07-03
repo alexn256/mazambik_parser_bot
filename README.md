@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="logo.png" alt="Svitlo Kremen Bot" width="120"/>
+  <img src="assets/logo.png" alt="Svitlo Kremen Bot" width="120"/>
 
 # Svitlo Kremen Bot
 
@@ -32,13 +32,25 @@ If an updated schedule is published during the day, the bot shows exactly what c
 Users can request today's or tomorrow's schedule at any time (if already published).
 
 ### What's the status right now?
-The bot answers in real time: is there power or not, how long until the next outage or restoration.
+The bot answers in real time (with a themed picture): is there power or not, how long until the next outage or restoration.
 
 ```
 💡 Зараз є світло · черга 3.2
 до 14:30 (ще 1 год 20 хв)
 Далі: відключення 14:30 – 16:00
 ```
+
+### Find your queue by address
+Don't know your queue? The bot resolves it from your address: pick a city or type your village, then type your street — search is typo-tolerant. If a street is split between queues, the bot shows each queue's house numbers so you pick your own. One more tap subscribes you to notifications for that queue.
+
+```
+🔍 Яка у мене черга?
+📍 м. Кременчук  →  вул. Лесі Українки
+🟤 Ваша черга: 5.2
+[✅ Отримувати сповіщення для 5.2]
+```
+
+Covers the whole Kremenchuk branch: Kremenchuk, Horishni Plavni, Kobeliaky, Hlobyne and ~200 villages (many resolve instantly — the entire settlement is in one queue).
 
 ### Statistics
 View outage hours for the last 7 or 30 days for your queue.
@@ -54,21 +66,30 @@ View outage hours for the last 7 or 30 days for your queue.
 
 ## Schedule format
 
+Full schedule (no queue filter):
+
 ```
 ⚡ Графік відключень на 10.04.2026 (станом на 20:00)
 
-🟡🟡🟡🟡 1 черга 🟡🟡🟡🟡
-    1.1          1.2
-00:00–02:30  00:30–03:00
-07:00–09:30  07:30–10:00
-13:00–14:30  13:30–15:00
-19:00–20:30  19:30–20:30
-
-🟢🟢🟢🟢 2 черга 🟢🟢🟢🟢
-    2.1          2.2
-02:00–03:30  02:30–04:00
-08:00–10:30  08:30–11:00
+🟡 1 черга
+  1.1 · 00:00–02:30, 07:00–09:30, 13:00–14:30
+  1.2 · 00:30–03:00, 07:30–10:00, 13:30–15:00
+🟢 2 черга
+  2.1 · 02:00–03:30, 08:00–10:30
+  2.2 · 02:30–04:00, 08:30–11:00
 ...
+```
+
+Personal schedule (queue selected) adds a day summary:
+
+```
+🟡 1 черга
+  1.2 · 17:00–18:00
+
+🟥🟩🟩🟩🟩🟩🟩🟩🟩🟩🟩🟩
+
+🕯️ 1.0 год без світла
+💡 23.0 год зі світлом
 ```
 
 ## Tech stack

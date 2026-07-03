@@ -62,6 +62,12 @@ def _time_to_minutes(t: str) -> int:
     return h * 60 + m
 
 
+def _end_to_minutes(t: str) -> int:
+    """Range END as minutes: '00:00' means midnight (1440), not day start."""
+    minutes = _time_to_minutes(t)
+    return 24 * 60 if minutes == 0 else minutes
+
+
 def _format_duration(minutes: int) -> str:
     h, m = divmod(minutes, 60)
     if h > 0 and m > 0:
@@ -99,17 +105,17 @@ async def send_current_status(chat_id: int) -> None:
     now = datetime.now(UKRAINE_TZ)
     now_m = now.hour * 60 + now.minute
 
-    # Check if currently in outage
+    # Check if currently in outage (end "00:00" = midnight, not day start)
     current_outage = next(
         (r for r in ranges
-         if _time_to_minutes(r["start"]) <= now_m < _time_to_minutes(r["end"])),
+         if _time_to_minutes(r["start"]) <= now_m < _end_to_minutes(r["end"])),
         None,
     )
 
     lines = []
     if current_outage:
-        remaining = _time_to_minutes(current_outage["end"]) - now_m
-        next_outage = _find_next_range(ranges, _time_to_minutes(current_outage["end"]))
+        remaining = _end_to_minutes(current_outage["end"]) - now_m
+        next_outage = _find_next_range(ranges, _end_to_minutes(current_outage["end"]))
         lines.append(f"🔴 Зараз відключення · черга {queue}")
         lines.append(f"до {current_outage['end']} (ще {_format_duration(remaining)})")
         if next_outage:
@@ -129,14 +135,21 @@ async def send_current_status(chat_id: int) -> None:
             lines.append("Відключень більше не заплановано на сьогодні")
         image_name = "power_on.png"
 
+    text = "\n".join(lines)
     image_path = os.path.join(os.path.dirname(__file__), "assets", image_name)
-    async with httpx.AsyncClient(timeout=30) as client:
-        with open(image_path, "rb") as f:
-            await client.post(
-                f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
-                data={"chat_id": chat_id, "caption": "\n".join(lines)},
-                files={"photo": (image_name, f, "image/png")},
-            )
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            with open(image_path, "rb") as f:
+                resp = await client.post(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
+                    data={"chat_id": chat_id, "caption": text},
+                    files={"photo": (image_name, f, "image/png")},
+                )
+        if resp.status_code != 200:
+            raise RuntimeError(f"sendPhoto returned {resp.status_code}")
+    except Exception:
+        logger.exception("Failed to send status photo, falling back to text")
+        await send_message(BOT_TOKEN, chat_id, text)
 
 
 async def send_current_schedule(chat_id: int) -> None:
@@ -230,6 +243,13 @@ async def process_image(image_path: str, date: str | None = None, timestamp: str
 
 def _queue_emoji(queue: str) -> str:
     return QUEUE_EMOJI.get(queue.split(".")[0], "⚡")
+
+
+def _safe_int(s: str) -> int | None:
+    try:
+        return int(s)
+    except ValueError:
+        return None
 
 
 async def _send_keyboard(client, chat_id, text, keyboard) -> None:
@@ -417,12 +437,21 @@ async def send_start_message(client: httpx.AsyncClient, chat_id: int) -> None:
     )
     image_path = os.path.join(os.path.dirname(__file__), "assets", "bot_title.png")
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
-    with open(image_path, "rb") as f:
-        await client.post(url, data={
-            "chat_id": chat_id,
-            "caption": caption,
-            "reply_markup": json.dumps(keyboard),
-        }, files={"photo": ("bot_title.png", f, "image/png")})
+    try:
+        with open(image_path, "rb") as f:
+            resp = await client.post(url, data={
+                "chat_id": chat_id,
+                "caption": caption,
+                "reply_markup": json.dumps(keyboard),
+            }, files={"photo": ("bot_title.png", f, "image/png")})
+        if resp.status_code != 200:
+            raise RuntimeError(f"sendPhoto returned {resp.status_code}")
+    except Exception:
+        logger.exception("Failed to send start photo, falling back to text")
+        await client.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+            json={"chat_id": chat_id, "text": caption, "reply_markup": keyboard},
+        )
 
 
 async def send_queue_selector(client: httpx.AsyncClient, chat_id: int) -> None:
@@ -515,8 +544,12 @@ async def poll_commands() -> None:
                     # Handle inline button press
                     if "callback_query" in update:
                         cq = update["callback_query"]
-                        chat_id = cq["message"]["chat"]["id"]
+                        # message is absent for expired callbacks
+                        chat_id = (cq.get("message") or {}).get("chat", {}).get("id")
                         data = cq.get("data", "")
+                        if not chat_id:
+                            await answer_callback(client, cq["id"], "")
+                            continue
 
                         if data == "subscribe":
                             added = add_subscriber(chat_id, SUBSCRIBERS_FILE_PATH)
@@ -582,24 +615,31 @@ async def poll_commands() -> None:
 
                         elif data.startswith("fq_city_"):
                             await answer_callback(client, cq["id"], "")
-                            idx = int(data[len("fq_city_"):])
-                            if 0 <= idx < len(MAJOR_CITIES):
+                            idx = _safe_int(data[len("fq_city_"):])
+                            if idx is not None and 0 <= idx < len(MAJOR_CITIES):
                                 await _fq_after_place(client, chat_id, MAJOR_CITIES[idx])
 
                         elif data.startswith("fq_place_"):
                             await answer_callback(client, cq["id"], "")
-                            idx = int(data[len("fq_place_"):])
+                            idx = _safe_int(data[len("fq_place_"):])
                             places = fq_state.get(chat_id, {}).get("places", [])
-                            if 0 <= idx < len(places):
+                            if idx is not None and 0 <= idx < len(places):
                                 await _fq_after_place(client, chat_id, places[idx])
+                            elif not places:
+                                # wizard state lost (e.g. after redeploy)
+                                await send_fq_start(client, chat_id)
 
                         elif data.startswith("fq_street_"):
                             await answer_callback(client, cq["id"], "")
-                            idx = int(data[len("fq_street_"):])
+                            idx = _safe_int(data[len("fq_street_"):])
                             st = fq_state.get(chat_id, {})
                             streets = st.get("streets", [])
-                            if st.get("place") and 0 <= idx < len(streets):
+                            if (idx is not None and st.get("place")
+                                    and 0 <= idx < len(streets)):
                                 await _fq_send_street(client, chat_id, st["place"], streets[idx])
+                            elif not streets:
+                                # wizard state lost (e.g. after redeploy)
+                                await send_fq_start(client, chat_id)
 
                         elif data.startswith("fq_sub_"):
                             queue = data[len("fq_sub_"):]
@@ -628,7 +668,6 @@ async def poll_commands() -> None:
                         else:
                             file_id = photo[-1]["file_id"]
                             logger.info("Admin photo received, processing as schedule...")
-                        await answer_callback(client, "", "")
                         try:
                             file_resp = await client.get(
                                 f"https://api.telegram.org/bot{BOT_TOKEN}/getFile",

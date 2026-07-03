@@ -41,6 +41,24 @@ class TestComputeDiff:
         assert len(diff) == 1
         assert diff[0]["type"] == "shifted"
 
+    def test_midnight_end_shortened(self):
+        # 23:00–00:00 (ends at midnight) shortened to 23:00–23:30
+        diff = compute_diff(
+            {"5.1": [{"start": "23:00", "end": "00:00"}]},
+            {"5.1": [{"start": "23:00", "end": "23:30"}]},
+        )
+        assert len(diff) == 1
+        assert diff[0]["type"] == "shortened"
+
+    def test_midnight_end_extended(self):
+        # 23:00–23:30 extended to 23:00–00:00 (midnight)
+        diff = compute_diff(
+            {"5.1": [{"start": "23:00", "end": "23:30"}]},
+            {"5.1": [{"start": "23:00", "end": "00:00"}]},
+        )
+        assert len(diff) == 1
+        assert diff[0]["type"] == "extended"
+
     def test_multiple_queues_only_changed_returned(self):
         old = {"1.1": [RANGE_A], "1.2": [RANGE_B]}
         new = {"1.1": [RANGE_A_SHORTER], "1.2": [RANGE_B]}

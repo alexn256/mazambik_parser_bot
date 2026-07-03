@@ -35,6 +35,17 @@ class TestTotalOutageMinutes:
     def test_single_range(self):
         assert _total_outage_minutes([{"start": "10:00", "end": "11:30"}]) == 90
 
+    def test_midnight_wrap_end(self):
+        # end "00:00" means midnight, not day start (23:00–00:00 = 60 min)
+        assert _total_outage_minutes([{"start": "23:00", "end": "00:00"}]) == 60
+
+    def test_midnight_wrap_does_not_eat_other_ranges(self):
+        ranges = [
+            {"start": "10:00", "end": "12:00"},
+            {"start": "23:00", "end": "00:00"},
+        ]
+        assert _total_outage_minutes(ranges) == 180
+
     def test_multiple_ranges(self):
         ranges = [
             {"start": "08:00", "end": "09:00"},
