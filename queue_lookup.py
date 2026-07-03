@@ -91,6 +91,20 @@ class QueueLookup:
         entries = self._data.get(place, {}).get(WHOLE, [])
         return sorted({e["queue"] for e in entries})
 
+    def whole_entries(self, place: str) -> list[dict]:
+        """Whole-settlement entries with their district ('area'), deduped.
+
+        A settlement name may exist in several districts with different queues;
+        the area lets the caller ask the user which one is theirs.
+        """
+        seen, out = set(), []
+        for e in self._data.get(place, {}).get(WHOLE, []):
+            key = (e["queue"], e.get("area"))
+            if key not in seen:
+                seen.add(key)
+                out.append(e)
+        return out
+
     # ---- streets ---------------------------------------------------------
 
     def search_streets(self, place: str, query: str, limit: int = 8) -> list[str]:

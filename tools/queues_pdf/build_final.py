@@ -9,6 +9,24 @@ corrections = json.load(open("corrections.json"))
 WHOLE = "__whole__"
 MAJOR_CITIES = ["м. Кременчук", "м. Кобеляки", "м. Глобине", "м. Горішні Плавні"]
 
+# A settlement name can exist in several districts (дільниці) with different
+# queues — e.g. two с. Іванівка. Label whole-settlement entries by the nearest
+# town so the user can pick their own.
+AREA_TOWN = {
+    "Кременчуцька": "Кременчук",
+    "Великокохнівська": "Велика Кохнівка",
+    "Горішньоплавнівська": "Горішні Плавні",
+    "Глобинська": "Глобине",
+    "Кобеляцька": "Кобеляки",
+    "Козельщинська": "Козельщина",
+    "Семенівська": "Семенівка",
+}
+
+
+def branch_area(branch: str) -> str:
+    word = branch.split()[0]
+    return AREA_TOWN.get(word, word)
+
 # Branch-implied default place for rows with streets but no place marker
 BRANCH_PLACE = {
     "Горішньоплавнівська": "м. Горішні Плавні",
@@ -127,6 +145,7 @@ skipped_noplace = []
 for row in rows:
     queue = row["queue"]
     branch_word = row["branch"].split()[0]
+    area = branch_area(row["branch"])
     for p in row["places"]:
         place = norm_place(p["place"]) or BRANCH_PLACE.get(branch_word)
         streets = [st for st in p["streets"]
@@ -143,7 +162,7 @@ for row in rows:
             # place + org(s) ("с. Рокитне, юридичні споживачі")
             if len(row["places"]) == 1 and row["orgs"]:
                 continue
-            pl.setdefault("__whole__", []).append({"queue": queue})
+            pl.setdefault("__whole__", []).append({"queue": queue, "area": area})
             continue
         for st in streets:
             # Merge by street NAME (drop type prefix): the source is
@@ -151,7 +170,7 @@ for row in rows:
             # prefix entirely, fragmenting one street into several keys.
             key = clean_street_name(st["name"])
             entries = pl.setdefault(key, [])
-            entries.append({"houses": st["houses"], "queue": queue,
+            entries.append({"houses": st["houses"], "queue": queue, "area": area,
                             **({"alt": st["alt"]} if st.get("alt") else {})})
 
 # merge duplicate entries with same queue for same street
@@ -166,7 +185,8 @@ for place, streets in lookup.items():
                 merged[q]["houses"].extend(
                     h for h in e.get("houses", []) if h not in merged[q]["houses"])
             else:
-                merged[q] = {"queue": q, "houses": list(e.get("houses", []))}
+                merged[q] = {"queue": q, "houses": list(e.get("houses", [])),
+                             "area": e.get("area")}
         streets[key] = list(merged.values())
 
 # Villages the parser mislabeled: a non-city place whose streets ALL lack
@@ -186,16 +206,37 @@ for place in list(lookup.keys()):
     qset = sorted({e["queue"] for k in real for e in streets[k]})
     if len(qset) != 1:
         continue
+    area_by_q = {}
+    for k in real:
+        for e in streets[k]:
+            area_by_q.setdefault(e["queue"], e.get("area"))
     for k in real:
         del streets[k]
     have = {e["queue"] for e in streets.get(WHOLE, [])}
     streets.setdefault(WHOLE, [])
     for q in qset:
         if q not in have:
-            streets[WHOLE].append({"queue": q})
+            streets[WHOLE].append({"queue": q, "area": area_by_q.get(q)})
 
 # drop places that ended up empty (org-only rows)
 lookup = {p: s for p, s in lookup.items() if s}
+
+# dedupe whole-settlement entries by (queue, area); drop street-level area
+# (only whole entries need it, for same-name-different-district disambiguation)
+for place, streets in lookup.items():
+    if WHOLE in streets:
+        seen, uniq = set(), []
+        for e in streets[WHOLE]:
+            k = (e["queue"], e.get("area"))
+            if k not in seen:
+                seen.add(k)
+                uniq.append(e)
+        streets[WHOLE] = uniq
+    for key, entries in streets.items():
+        if key == WHOLE:
+            continue
+        for e in entries:
+            e.pop("area", None)
 
 with open("krem_lookup.json", "w", encoding="utf-8") as f:
     json.dump(lookup, f, ensure_ascii=False, indent=1, sort_keys=True)

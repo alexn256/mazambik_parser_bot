@@ -265,12 +265,19 @@ async def _fq_after_place(client: httpx.AsyncClient, chat_id: int, place: str) -
     """Place is known: whole-village → answer; few streets → buttons; else ask."""
     n = QUEUES.place_streets_count(place)
     if n == 0:
-        queues = QUEUES.whole_queues(place)
-        if queues:
+        entries = QUEUES.whole_entries(place)
+        queues = sorted({e["queue"] for e in entries})
+        if not entries:
+            await send_message(BOT_TOKEN, chat_id, f"ℹ️ Немає даних по «{place}».")
+        elif len(queues) == 1:
             await _fq_send_result(client, chat_id, place, None, queues)
         else:
-            await send_message(BOT_TOKEN, chat_id,
-                f"ℹ️ Немає даних по «{place}».")
+            # same name in several districts → let the user pick their area
+            lines = [f"📍 <b>{place}</b> зустрічається у кількох районах.",
+                     "Оберіть свій:"]
+            keyboard = [[{"text": f"{e.get('area', '?')} · {_queue_emoji(e['queue'])} черга {e['queue']}",
+                          "callback_data": f"fq_sub_{e['queue']}"}] for e in entries]
+            await _send_keyboard(client, chat_id, "\n".join(lines), keyboard)
         fq_state.pop(chat_id, None)
         return
     if n <= FQ_BUTTON_LIMIT:
