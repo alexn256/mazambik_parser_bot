@@ -1,5 +1,5 @@
 import pytest
-from stats import _progress_bar, _total_outage_minutes, BAR_BLOCKS
+from stats import _progress_bar, _total_outage_minutes, BAR_BLOCKS, BAR_MAX_MINUTES
 
 
 class TestProgressBar:
@@ -8,16 +8,21 @@ class TestProgressBar:
         assert bar == "🟩" * BAR_BLOCKS
 
     def test_max_minutes(self):
-        bar = _progress_bar(720)  # 12 hours = max
+        # bar is proportional to a full 24-hour day
+        bar = _progress_bar(BAR_MAX_MINUTES)
         assert bar == "🟥" * BAR_BLOCKS
 
     def test_half(self):
-        bar = _progress_bar(360)  # 6 hours = half
-        assert bar.count("🟥") == 5
-        assert bar.count("🟩") == 5
+        bar = _progress_bar(BAR_MAX_MINUTES // 2)  # 12 hours = half the day
+        assert bar.count("🟥") == BAR_BLOCKS // 2
+        assert bar.count("🟩") == BAR_BLOCKS // 2
 
-    def test_length_always_ten(self):
-        for minutes in [0, 100, 360, 720, 999]:
+    def test_proportional_to_full_day(self):
+        bar = _progress_bar(6 * 60)  # 6h out of 24h = a quarter
+        assert bar.count("🟥") == 3
+
+    def test_length_always_full(self):
+        for minutes in [0, 100, 360, 720, 1440, 9999]:
             bar = _progress_bar(minutes)
             total = bar.count("🟥") + bar.count("🟩")
             assert total == BAR_BLOCKS

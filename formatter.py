@@ -73,7 +73,9 @@ def format_schedule(
         minutes_off = _total_outage_minutes(ranges)
         minutes_on = 24 * 60 - minutes_off
         bar = _progress_bar(minutes_off)
-        lines.append(f"\n{bar}  {minutes_off / 60:.1f} год без світла · {minutes_on / 60:.1f} год зі світлом")
+        lines.append(f"\n{bar}\n")
+        lines.append(f"🕯️ {minutes_off / 60:.1f} год без світла")
+        lines.append(f"💡 {minutes_on / 60:.1f} год зі світлом")
     else:
         for q_num in range(1, 7):
             lines.append(_queue_block(q_num, schedule))
