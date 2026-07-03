@@ -29,9 +29,16 @@ JUNK_STREET_RE = re.compile(
 )
 
 
+_RU_FOLD = str.maketrans({"ы": "и", "Ы": "И", "э": "е", "Э": "Е",
+                          "ё": "е", "Ё": "Е", "ъ": "", "Ъ": ""})
+
+
 def clean_street_name(name: str) -> str:
     """Normalize a street display name; label bare-number Kremenchuk quarters."""
     name = re.sub(r"\s+", " ", name).strip()
+    # Russian-only letters are source typos (no ы/э/ё/ъ in Ukrainian):
+    # "Свободы" -> "Свободи", "Столярный" -> "Столярний"
+    name = name.translate(_RU_FOLD)
     if name.isdigit():
         name = f"кв. {name}"
     return name

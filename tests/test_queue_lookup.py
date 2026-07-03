@@ -81,6 +81,12 @@ class TestDataIntegrity:
                 assert len(key.strip()) >= 3, f"too short: {place} / {key!r}"
                 assert not re.fullmatch(r"[А-ЯІЇЄҐ]{2,6}", key.strip()), \
                     f"org abbreviation: {place} / {key!r}"
+                assert not re.search(r"[ыэёъ]", key, re.IGNORECASE), \
+                    f"russian letters (source typo): {place} / {key!r}"
+
+    def test_russian_typo_still_searchable(self, lk):
+        # "Свободы" in the source is a typo for "Свободи"; both must resolve
+        assert lk.search_streets("м. Кременчук", "свободы") == ["Свободи"]
 
 
 class TestWholeSettlement:

@@ -31,7 +31,8 @@ def normalize(s: str) -> str:
     s = _STREET_PREFIX.sub("", s)
     for ch in "`'’ʼ‚":
         s = s.replace(ch, "")
-    # collapse visually/aurally confusable Ukrainian letters
+    # fold Russian-only letters (source typos) then confusable Ukrainian ones
+    s = (s.replace("ы", "и").replace("э", "е").replace("ё", "е").replace("ъ", ""))
     s = (s.replace("ї", "і").replace("и", "і").replace("й", "і")
            .replace("є", "е").replace("ґ", "г"))
     s = re.sub(r"[\s\-]+", " ", s)
