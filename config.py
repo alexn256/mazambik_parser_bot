@@ -14,6 +14,7 @@ USER_CHAT_ID = int(os.environ["USER_CHAT_ID"])
 STATE_FILE_PATH = os.getenv("STATE_FILE_PATH", "./state.json")
 SUBSCRIBERS_FILE_PATH = os.getenv("SUBSCRIBERS_FILE_PATH", "./subscribers.json")
 HISTORY_FILE_PATH = os.getenv("HISTORY_FILE_PATH", "./history.json")
+QUEUES_FILE_PATH = os.getenv("QUEUES_FILE_PATH", "./krem_queues.json")
 
 # Queue labels in grid order: row 1 then row 2, left to right
 QUEUE_LABELS = [

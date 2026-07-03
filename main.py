@@ -12,6 +12,7 @@ from config import (
     CHANNEL_USERNAME,
     HISTORY_FILE_PATH,
     QUEUE_LABELS,
+    QUEUES_FILE_PATH,
     STATE_FILE_PATH,
     SUBSCRIBERS_FILE_PATH,
     TELETHON_API_HASH,
@@ -20,7 +21,8 @@ from config import (
     USER_CHAT_ID,
 )
 from diff import compute_diff
-from formatter import format_schedule
+from formatter import QUEUE_EMOJI, format_schedule
+from queue_lookup import MAJOR_CITIES, QueueLookup
 from monitor import create_client, monitor_channel
 from parser import parse_schedule_image
 from sender import broadcast, send_message
@@ -41,6 +43,17 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 UKRAINE_TZ = timezone(timedelta(hours=3))
+
+try:
+    QUEUES = QueueLookup(QUEUES_FILE_PATH)
+    logger.info("Loaded queue lookup: %d places", len(QUEUES._data))
+except Exception:
+    logger.exception("Failed to load queue lookup; 'find my queue' disabled")
+    QUEUES = None
+
+# Per-chat state for the "which queue is mine?" wizard.
+# In-memory only: on redeploy the user just restarts the lookup, no data lost.
+fq_state: dict[int, dict] = {}
 
 
 
@@ -215,6 +228,130 @@ async def process_image(image_path: str, date: str | None = None, timestamp: str
     return True
 
 
+def _queue_emoji(queue: str) -> str:
+    return QUEUE_EMOJI.get(queue.split(".")[0], "⚡")
+
+
+async def _send_keyboard(client, chat_id, text, keyboard) -> None:
+    await client.post(
+        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+        json={"chat_id": chat_id, "text": text, "parse_mode": "HTML",
+              "reply_markup": {"inline_keyboard": keyboard}},
+    )
+
+
+async def send_fq_start(client: httpx.AsyncClient, chat_id: int) -> None:
+    """Begin the 'which queue is mine?' wizard: pick a city or type a village."""
+    if QUEUES is None:
+        await send_message(BOT_TOKEN, chat_id, "ℹ️ Довідник черг тимчасово недоступний.")
+        return
+    fq_state[chat_id] = {"step": "place"}
+    keyboard = [
+        [{"text": MAJOR_CITIES[i].replace("м. ", ""), "callback_data": f"fq_city_{i}"},
+         {"text": MAJOR_CITIES[i + 1].replace("м. ", ""), "callback_data": f"fq_city_{i + 1}"}]
+        for i in range(0, len(MAJOR_CITIES), 2)
+    ]
+    await _send_keyboard(client, chat_id,
+        "🔍 <b>Яка у мене черга?</b>\n\n"
+        "Оберіть місто або напишіть назву населеного пункту (напр.: <i>Потоки</i>):",
+        keyboard)
+
+
+async def _fq_after_place(client: httpx.AsyncClient, chat_id: int, place: str) -> None:
+    """Place is known: whole-village → answer; otherwise ask for the street."""
+    if QUEUES.place_streets_count(place) == 0:
+        queues = QUEUES.whole_queues(place)
+        if queues:
+            await _fq_send_result(client, chat_id, place, None, queues)
+            fq_state.pop(chat_id, None)
+            return
+    fq_state[chat_id] = {"step": "street", "place": place}
+    await send_message(BOT_TOKEN, chat_id,
+        f"📍 {place}\nНапишіть назву вашої вулиці:")
+
+
+async def _fq_send_street_candidates(client, chat_id, place, keys) -> None:
+    fq_state[chat_id] = {"step": "street", "place": place, "streets": keys}
+    keyboard = [[{"text": k, "callback_data": f"fq_street_{i}"}] for i, k in enumerate(keys)]
+    keyboard.append([{"text": "🔄 Ввести ще раз", "callback_data": "find_queue"}])
+    await _send_keyboard(client, chat_id, "Можливо, ви мали на увазі:", keyboard)
+
+
+async def _fq_send_result(client, chat_id, place, street, queues) -> None:
+    """Show the resolved queue(s) and offer to subscribe when unambiguous."""
+    loc = place if street is None else f"{place}, {street}"
+    if len(queues) == 1:
+        q = queues[0]
+        text = f"{_queue_emoji(q)} Ваша черга: <b>{q}</b>\n<i>{loc}</i>"
+        keyboard = [[{"text": f"✅ Отримувати сповіщення для {q}",
+                      "callback_data": f"fq_sub_{q}"}]]
+        await _send_keyboard(client, chat_id, text, keyboard)
+    else:
+        lines = [f"<i>{loc}</i> — кілька черг:"]
+        for q in queues:
+            lines.append(f"{_queue_emoji(q)} черга {q}")
+        lines.append("\nОберіть свою чергу для сповіщень:")
+        keyboard = [[{"text": f"{_queue_emoji(q)} {q}", "callback_data": f"fq_sub_{q}"}
+                     for q in queues]]
+        await _send_keyboard(client, chat_id, "\n".join(lines), keyboard)
+
+
+async def _fq_send_street(client, chat_id, place, street_key) -> None:
+    """Street chosen: single queue → answer; split street → list houses + buttons."""
+    entries = QUEUES.street_entries(place, street_key)
+    queues = sorted({e["queue"] for e in entries})
+    if len(queues) == 1:
+        await _fq_send_result(client, chat_id, place, street_key, queues)
+        fq_state.pop(chat_id, None)
+        return
+    # Split street: show each queue's houses so the user finds their own number.
+    lines = [f"📍 {place}, <b>{street_key}</b>",
+             "Вулиця поділена між чергами. Знайдіть свій будинок і оберіть чергу:\n"]
+    keyboard_row = []
+    for e in sorted(entries, key=lambda x: x["queue"]):
+        q = e["queue"]
+        houses = ", ".join(e["houses"]) if e["houses"] else "—"
+        if len(houses) > 300:
+            houses = houses[:300] + "…"
+        lines.append(f"{_queue_emoji(q)} <b>{q}</b> — буд.: {houses}")
+        keyboard_row.append({"text": f"{_queue_emoji(q)} {q}", "callback_data": f"fq_sub_{q}"})
+    fq_state.pop(chat_id, None)
+    await _send_keyboard(client, chat_id, "\n".join(lines), [keyboard_row])
+
+
+async def handle_fq_text(client: httpx.AsyncClient, chat_id: int, text: str) -> None:
+    """Handle a free-text message while the user is in the wizard."""
+    state = fq_state.get(chat_id)
+    if not state or QUEUES is None:
+        return
+    if state["step"] == "place":
+        place = QUEUES.resolve_place(text)
+        if place:
+            await _fq_after_place(client, chat_id, place)
+            return
+        matches = QUEUES.search_places(text)
+        if not matches:
+            await send_message(BOT_TOKEN, chat_id,
+                "🤷 Не знайшов такого населеного пункту. Спробуйте ще раз:")
+        elif len(matches) == 1:
+            await _fq_after_place(client, chat_id, matches[0])
+        else:
+            fq_state[chat_id] = {"step": "place", "places": matches}
+            keyboard = [[{"text": p, "callback_data": f"fq_place_{i}"}]
+                        for i, p in enumerate(matches)]
+            await _send_keyboard(client, chat_id, "Можливо, ви мали на увазі:", keyboard)
+    elif state["step"] == "street":
+        place = state["place"]
+        matches = QUEUES.search_streets(place, text)
+        if not matches:
+            await send_message(BOT_TOKEN, chat_id,
+                "🤷 Не знайшов такої вулиці. Спробуйте написати інакше:")
+        elif len(matches) == 1:
+            await _fq_send_street(client, chat_id, place, matches[0])
+        else:
+            await _fq_send_street_candidates(client, chat_id, place, matches)
+
+
 async def send_start_message(client: httpx.AsyncClient, chat_id: int) -> None:
     """Send welcome message with bot image and inline buttons."""
     keyboard = {
@@ -231,6 +368,9 @@ async def send_start_message(client: httpx.AsyncClient, chat_id: int) -> None:
                 {"text": "⚡ Є світло зараз?", "callback_data": "show_status"},
             ],
             [
+                {"text": "🔍 Яка у мене черга?", "callback_data": "find_queue"},
+            ],
+            [
                 {"text": "⚙️ Моя черга", "callback_data": "select_queue"},
                 {"text": "📊 Статистика", "callback_data": "show_stats"},
             ],
@@ -241,6 +381,7 @@ async def send_start_message(client: httpx.AsyncClient, chat_id: int) -> None:
         "📋 Поточний графік — розклад на сьогодні\n"
         "📅 Графік на завтра — якщо вже опубліковано\n"
         "⚡ Є світло зараз? — поточний статус прямо зараз\n"
+        "🔍 Яка у мене черга? — визначити чергу за адресою\n"
         "⚙️ Моя черга — персональні сповіщення по своїй черзі\n"
         "📊 Статистика — години відключень за тиждень/місяць\n\n"
         "З побажаннями та зауваженнями звертайтесь до @M_AHTS."
@@ -405,6 +546,40 @@ async def poll_commands() -> None:
                             else:
                                 logger.info("Queue cleared: %d", chat_id)
                                 await answer_callback(client, cq["id"], "✅ Отримуєте повний графік")
+
+                        elif data == "find_queue":
+                            await answer_callback(client, cq["id"], "")
+                            await send_fq_start(client, chat_id)
+
+                        elif data.startswith("fq_city_"):
+                            await answer_callback(client, cq["id"], "")
+                            idx = int(data[len("fq_city_"):])
+                            if 0 <= idx < len(MAJOR_CITIES):
+                                await _fq_after_place(client, chat_id, MAJOR_CITIES[idx])
+
+                        elif data.startswith("fq_place_"):
+                            await answer_callback(client, cq["id"], "")
+                            idx = int(data[len("fq_place_"):])
+                            places = fq_state.get(chat_id, {}).get("places", [])
+                            if 0 <= idx < len(places):
+                                await _fq_after_place(client, chat_id, places[idx])
+
+                        elif data.startswith("fq_street_"):
+                            await answer_callback(client, cq["id"], "")
+                            idx = int(data[len("fq_street_"):])
+                            st = fq_state.get(chat_id, {})
+                            streets = st.get("streets", [])
+                            if st.get("place") and 0 <= idx < len(streets):
+                                await _fq_send_street(client, chat_id, st["place"], streets[idx])
+
+                        elif data.startswith("fq_sub_"):
+                            queue = data[len("fq_sub_"):]
+                            # set_subscriber_queue also registers the subscriber
+                            set_subscriber_queue(chat_id, queue, SUBSCRIBERS_FILE_PATH)
+                            logger.info("Queue set via find_queue: %d -> %s", chat_id, queue)
+                            fq_state.pop(chat_id, None)
+                            await answer_callback(client, cq["id"],
+                                f"✅ Готово! Отримуватимете сповіщення для черги {queue}")
                         continue
 
                     # Handle text commands and admin photo uploads
@@ -462,6 +637,13 @@ async def poll_commands() -> None:
 
                     text = message.get("text", "")
                     if not text:
+                        continue
+
+                    # A command aborts any in-progress wizard.
+                    if text.startswith("/"):
+                        fq_state.pop(chat_id, None)
+                    elif chat_id in fq_state:
+                        await handle_fq_text(client, chat_id, text.strip())
                         continue
 
                     if text.startswith("/start"):
