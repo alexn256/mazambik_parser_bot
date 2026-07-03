@@ -257,24 +257,37 @@ async def send_fq_start(client: httpx.AsyncClient, chat_id: int) -> None:
         keyboard)
 
 
+# Small places show all streets as buttons; large ones (cities) need typing.
+FQ_BUTTON_LIMIT = 12
+
+
 async def _fq_after_place(client: httpx.AsyncClient, chat_id: int, place: str) -> None:
-    """Place is known: whole-village → answer; otherwise ask for the street."""
-    if QUEUES.place_streets_count(place) == 0:
+    """Place is known: whole-village → answer; few streets → buttons; else ask."""
+    n = QUEUES.place_streets_count(place)
+    if n == 0:
         queues = QUEUES.whole_queues(place)
         if queues:
             await _fq_send_result(client, chat_id, place, None, queues)
-            fq_state.pop(chat_id, None)
-            return
+        else:
+            await send_message(BOT_TOKEN, chat_id,
+                f"ℹ️ Немає даних по «{place}».")
+        fq_state.pop(chat_id, None)
+        return
+    if n <= FQ_BUTTON_LIMIT:
+        await _fq_send_street_candidates(client, chat_id, place, QUEUES.street_keys(place),
+            prompt=f"📍 {place}\nОберіть вашу вулицю:")
+        return
     fq_state[chat_id] = {"step": "street", "place": place}
     await send_message(BOT_TOKEN, chat_id,
         f"📍 {place}\nНапишіть назву вашої вулиці:")
 
 
-async def _fq_send_street_candidates(client, chat_id, place, keys) -> None:
+async def _fq_send_street_candidates(client, chat_id, place, keys,
+                                     prompt="Можливо, ви мали на увазі:") -> None:
     fq_state[chat_id] = {"step": "street", "place": place, "streets": keys}
     keyboard = [[{"text": k, "callback_data": f"fq_street_{i}"}] for i, k in enumerate(keys)]
-    keyboard.append([{"text": "🔄 Ввести ще раз", "callback_data": "find_queue"}])
-    await _send_keyboard(client, chat_id, "Можливо, ви мали на увазі:", keyboard)
+    keyboard.append([{"text": "🔄 Обрати інше місто", "callback_data": "find_queue"}])
+    await _send_keyboard(client, chat_id, prompt, keyboard)
 
 
 async def _fq_send_result(client, chat_id, place, street, queues) -> None:
@@ -344,8 +357,17 @@ async def handle_fq_text(client: httpx.AsyncClient, chat_id: int, text: str) -> 
         place = state["place"]
         matches = QUEUES.search_streets(place, text)
         if not matches:
-            await send_message(BOT_TOKEN, chat_id,
-                "🤷 Не знайшов такої вулиці. Спробуйте написати інакше:")
+            # never dead-end: for a small place show every street; otherwise
+            # let the user retry or restart
+            if QUEUES.place_streets_count(place) <= FQ_BUTTON_LIMIT:
+                await _fq_send_street_candidates(client, chat_id, place,
+                    QUEUES.street_keys(place),
+                    prompt="🤷 Не знайшов. Ось вулиці цього населеного пункту:")
+            else:
+                await _send_keyboard(client, chat_id,
+                    "🤷 Не знайшов такої вулиці. Спробуйте написати інакше "
+                    "або почніть заново:",
+                    [[{"text": "🔄 Обрати інше місто", "callback_data": "find_queue"}]])
         elif len(matches) == 1:
             await _fq_send_street(client, chat_id, place, matches[0])
         else:

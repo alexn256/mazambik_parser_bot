@@ -83,6 +83,9 @@ class QueueLookup:
     def place_streets_count(self, place: str) -> int:
         return len([k for k in self._data.get(place, {}) if k != WHOLE])
 
+    def street_keys(self, place: str) -> list[str]:
+        return sorted(k for k in self._data.get(place, {}) if k != WHOLE)
+
     def whole_queues(self, place: str) -> list[str]:
         entries = self._data.get(place, {}).get(WHOLE, [])
         return sorted({e["queue"] for e in entries})

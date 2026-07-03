@@ -83,6 +83,28 @@ class TestDataIntegrity:
                     f"org abbreviation: {place} / {key!r}"
 
 
+class TestWholeSettlement:
+    def test_streetless_village_is_whole(self, lk):
+        # с. М.Кохнівка appears once in the source (queue 3.2): the whole
+        # settlement is in that one queue, so it must resolve without a street.
+        assert lk.place_streets_count("с. М.Кохнівка") == 0
+        assert lk.whole_queues("с. М.Кохнівка") == ["3.2"]
+
+    def test_single_queue_houseless_places_flattened(self, lk):
+        # invariant: a non-city place whose streets all lack house numbers and
+        # share one queue must have been collapsed into a whole settlement
+        for place, streets in lk._data.items():
+            if place in MAJOR_CITIES:
+                continue
+            real = [k for k in streets if k != "__whole__"]
+            if not real:
+                continue
+            if not all(all(not e.get("houses") for e in streets[k]) for k in real):
+                continue
+            queues = {e["queue"] for k in real for e in streets[k]}
+            assert len(queues) > 1, f"{place} should be a whole settlement"
+
+
 class TestHouseMatches:
     def test_exact(self):
         assert _house_matches("55", "55")

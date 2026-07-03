@@ -6,6 +6,9 @@ import re
 rows = json.load(open("krem_parsed.json"))
 corrections = json.load(open("corrections.json"))
 
+WHOLE = "__whole__"
+MAJOR_CITIES = ["м. Кременчук", "м. Кобеляки", "м. Глобине", "м. Горішні Плавні"]
+
 # Branch-implied default place for rows with streets but no place marker
 BRANCH_PLACE = {
     "Горішньоплавнівська": "м. Горішні Плавні",
@@ -47,7 +50,7 @@ def norm_place(p):
     if re.fullmatch(r"м\. Горішні [Пп]лавні", p):
         p = "м. Горішні Плавні"
     # strip org tail captured as part of place name
-    p = re.sub(r"\s+(ТОВ|ПрАТ|ПАТ|КП|ФОП)$", "", p)
+    p = re.sub(r"\s+(ТОВ|ПрАТ|ПАТ|КП|ФОП|ПП|ТДВ|ДП)$", "", p)
     # same settlement written two ways
     if p == "с. Власівка":
         p = "смт Власівка"
@@ -158,6 +161,31 @@ for place, streets in lookup.items():
             else:
                 merged[q] = {"queue": q, "houses": list(e.get("houses", []))}
         streets[key] = list(merged.values())
+
+# Villages the parser mislabeled: a non-city place whose streets ALL lack
+# house numbers and share ONE queue is really a whole settlement in that queue
+# (the "streets" are sibling hamlets or unnumbered streets that don't change
+# the answer). Multi-queue such places keep their streets, so street selection
+# still resolves the queue (e.g. с. Лутовинівка spans 2.1 and 5.1).
+for place in list(lookup.keys()):
+    if place in MAJOR_CITIES:
+        continue
+    streets = lookup[place]
+    real = [k for k in streets if k != WHOLE]
+    if not real:
+        continue
+    if not all(all(not e.get("houses") for e in streets[k]) for k in real):
+        continue
+    qset = sorted({e["queue"] for k in real for e in streets[k]})
+    if len(qset) != 1:
+        continue
+    for k in real:
+        del streets[k]
+    have = {e["queue"] for e in streets.get(WHOLE, [])}
+    streets.setdefault(WHOLE, [])
+    for q in qset:
+        if q not in have:
+            streets[WHOLE].append({"queue": q})
 
 # drop places that ended up empty (org-only rows)
 lookup = {p: s for p, s in lookup.items() if s}
