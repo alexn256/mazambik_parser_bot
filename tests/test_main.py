@@ -2,6 +2,7 @@ import asyncio
 
 import pytest
 import main
+import sender
 from main import (
     _find_next_range,
     _format_duration,
@@ -250,3 +251,64 @@ class TestQuietForecastThenSchedule:
         longer = {**self.GRID, "1.1": [{"start": "08:00", "end": "11:00"}]}
         asyncio.run(main.process_parsed(self._day(longer, "14.09.2026 22:30")))
         assert "Оновлення графіку" in pipeline[0][1]
+
+
+class TestCancellation:
+    """A published schedule called off is one short fact, not a grid of blanks."""
+
+    DATE = "15.09.2026"
+    EMPTY = {f"{q}.{s}": [] for q in range(1, 7) for s in (1, 2)}
+    GRID = {**EMPTY, "1.1": [{"start": "08:00", "end": "10:00"}]}
+
+    @pytest.fixture
+    def pipeline(self, monkeypatch, tmp_path):
+        sent = []
+        async def fake_send(token, chat_id, text):
+            sent.append((chat_id, text))
+            return True
+        monkeypatch.setattr(main, "send_message", fake_send)
+        monkeypatch.setattr(sender, "send_message", fake_send)
+        monkeypatch.setattr(sender, "BROADCAST_DELAY", 0)
+        monkeypatch.setattr(main, "load_subscribers", lambda path: {1: "1.1", 2: "4.2"})
+        monkeypatch.setattr(main, "STATE_FILE_PATH", str(tmp_path / "state.json"))
+        monkeypatch.setattr(main, "HISTORY_FILE_PATH", str(tmp_path / "history.json"))
+        return sent
+
+    def _day(self, schedule, stamp):
+        return {"date": self.DATE, "schedule": schedule, "updated_at": stamp,
+                "timestamp": stamp.split(" ")[1], "source": "poe.pl.ua"}
+
+    def _publish_then_cancel(self, pipeline):
+        asyncio.run(main.process_parsed(self._day(self.GRID, "14.09.2026 20:04")))
+        pipeline.clear()
+        asyncio.run(main.process_parsed(self._day(self.EMPTY, "14.09.2026 23:15")))
+
+    def test_says_cancelled_without_listing_queues(self, pipeline):
+        self._publish_then_cancel(pipeline)
+        text = pipeline[0][1]
+        assert "скасовано" in text
+        assert "тепер немає відключень" not in text
+        assert "1 черга" not in text
+
+    def test_cites_the_provider_stamp(self, pipeline):
+        self._publish_then_cancel(pipeline)
+        assert "14.09.2026 23:15" in pipeline[0][1]
+
+    def test_reaches_every_subscriber(self, pipeline):
+        # 4.2 had no outages in that grid, but everyone planned around the day
+        self._publish_then_cancel(pipeline)
+        assert sorted(chat_id for chat_id, _ in pipeline) == [1, 2]
+
+    def test_a_quiet_day_that_was_never_scheduled_stays_silent(self, pipeline):
+        asyncio.run(main.process_parsed(self._day(self.EMPTY, "14.09.2026 09:00")))
+        assert pipeline == []
+
+
+class TestProviderStampLine:
+    def test_omitted_when_there_is_no_stamp_to_cite(self):
+        assert main._provider_stamp_line({"date": "15.09.2026"}) is None
+
+    def test_same_day_stamp_reads_as_a_bare_time(self):
+        line = main._provider_stamp_line(
+            {"date": "15.09.2026", "updated_at": "15.09.2026 08:30"})
+        assert line.endswith("станом на 08:30.")

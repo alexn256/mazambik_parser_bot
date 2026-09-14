@@ -188,6 +188,31 @@ async def send_current_status(chat_id: int) -> None:
         await send_message(BOT_TOKEN, chat_id, text)
 
 
+def _provider_stamp_line(parsed: dict) -> str | None:
+    """Attribution line for answers that carry no grid of their own.
+
+    Says nothing at all rather than citing a source we cannot date — a
+    schedule recognised from a screenshot has no provider stamp.
+    """
+    stamp = format_stamp(parsed)
+    if stamp == "?":
+        return None
+    return f"За даними Полтаваобленерго станом на {stamp}."
+
+
+def _cancellation_message(parsed: dict) -> str:
+    """Wording for a schedule that was published and then called off.
+
+    Deliberately short: the previous schedule is void, and a full grid of
+    twelve "немає відключень" lines would bury that single fact.
+    """
+    lines = [f"✅ Графік на {parsed['date']} скасовано — відключень не прогнозується."]
+    source_line = _provider_stamp_line(parsed)
+    if source_line:
+        lines.append(source_line)
+    return "\n".join(lines)
+
+
 async def _send_day_schedule(chat_id: int, date: str, entry: dict, when: str) -> None:
     """Send one day's schedule, or the provider's "nothing planned" notice.
 
@@ -205,9 +230,9 @@ async def _send_day_schedule(chat_id: int, date: str, entry: dict, when: str) ->
 
     if not has_outages(parsed["schedule"]):
         lines = [f"🟢 На {when} ({date}) відключень не прогнозується."]
-        stamp = format_stamp(parsed)
-        if stamp != "?":
-            lines.append(f"За даними Полтаваобленерго станом на {stamp}.")
+        source_line = _provider_stamp_line(parsed)
+        if source_line:
+            lines.append(source_line)
         await send_message(BOT_TOKEN, chat_id, "\n".join(lines))
         return
 
@@ -289,6 +314,16 @@ async def process_parsed(parsed: dict) -> bool:
             _refresh_stamp(state, parsed)
             logger.info("No changes detected, skipping notification")
             return False
+        if has_outages(stored) and not has_outages(parsed["schedule"]):
+            # The provider called the whole day off. Everyone planned around
+            # the old schedule, so this goes out regardless of queue.
+            logger.info("Schedule for %s cancelled by the provider", parsed_date)
+            subscribers = load_subscribers(SUBSCRIBERS_FILE_PATH)
+            await broadcast(BOT_TOKEN, list(subscribers.keys()),
+                            _cancellation_message(parsed))
+            _persist(state, parsed)
+            return True
+
         if not has_outages(stored) and has_outages(parsed["schedule"]):
             # All we had for this date was a silently recorded "nothing
             # planned". A grid arriving afterwards is the schedule's first
