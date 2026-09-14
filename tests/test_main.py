@@ -201,3 +201,52 @@ class TestRestorationHint:
     def test_outage_no_longer_than_the_window_says_nothing(self):
         # A lone switching cell is all edge — there is no "earlier" to promise
         assert _restoration_hint({"start": "00:00", "end": "00:30"}, 0) is None
+
+
+class TestQuietForecastThenSchedule:
+    """A grid arriving after a quiet forecast is a first publication."""
+
+    DATE = "15.09.2026"
+    EMPTY = {f"{q}.{s}": [] for q in range(1, 7) for s in (1, 2)}
+    GRID = {**EMPTY, "1.1": [{"start": "08:00", "end": "10:00"}]}
+
+    @pytest.fixture
+    def pipeline(self, monkeypatch, tmp_path):
+        sent = []
+        async def fake_send(token, chat_id, text):
+            sent.append((chat_id, text))
+        monkeypatch.setattr(main, "send_message", fake_send)
+        monkeypatch.setattr(main, "load_subscribers", lambda path: {1: "1.1", 2: "4.2"})
+        monkeypatch.setattr(main, "STATE_FILE_PATH", str(tmp_path / "state.json"))
+        monkeypatch.setattr(main, "HISTORY_FILE_PATH", str(tmp_path / "history.json"))
+        return sent
+
+    def _day(self, schedule, stamp):
+        return {"date": self.DATE, "schedule": schedule, "updated_at": stamp,
+                "timestamp": stamp.split(" ")[1], "source": "poe.pl.ua"}
+
+    def test_quiet_forecast_is_recorded_silently(self, pipeline):
+        asyncio.run(main.process_parsed(self._day(self.EMPTY, "14.09.2026 09:00")))
+        assert pipeline == []
+
+    def test_later_grid_reads_as_a_first_publication(self, pipeline):
+        asyncio.run(main.process_parsed(self._day(self.EMPTY, "14.09.2026 09:00")))
+        asyncio.run(main.process_parsed(self._day(self.GRID, "14.09.2026 20:04")))
+        text = pipeline[0][1]
+        assert "Графік відключень" in text
+        assert "Оновлення графіку" not in text
+        assert "з'явились відключення" not in text
+
+    def test_it_reaches_subscribers_of_untouched_queues_too(self, pipeline):
+        asyncio.run(main.process_parsed(self._day(self.EMPTY, "14.09.2026 09:00")))
+        asyncio.run(main.process_parsed(self._day(self.GRID, "14.09.2026 20:04")))
+        # 4.2 has no outages in this grid, but a first publication goes to all
+        assert sorted(chat_id for chat_id, _ in pipeline) == [1, 2]
+
+    def test_a_later_correction_is_still_an_update(self, pipeline):
+        asyncio.run(main.process_parsed(self._day(self.EMPTY, "14.09.2026 09:00")))
+        asyncio.run(main.process_parsed(self._day(self.GRID, "14.09.2026 20:04")))
+        pipeline.clear()
+        longer = {**self.GRID, "1.1": [{"start": "08:00", "end": "11:00"}]}
+        asyncio.run(main.process_parsed(self._day(longer, "14.09.2026 22:30")))
+        assert "Оновлення графіку" in pipeline[0][1]

@@ -283,11 +283,20 @@ async def process_parsed(parsed: dict) -> bool:
 
     diff = None
     if not first_update and parsed_date:
-        diff = compute_diff(state[parsed_date]["schedule"], parsed["schedule"])
+        stored = state[parsed_date]["schedule"]
+        diff = compute_diff(stored, parsed["schedule"])
         if not diff:
             _refresh_stamp(state, parsed)
             logger.info("No changes detected, skipping notification")
             return False
+        if not has_outages(stored) and has_outages(parsed["schedule"]):
+            # All we had for this date was a silently recorded "nothing
+            # planned". A grid arriving afterwards is the schedule's first
+            # publication, not an amendment to one — announce it as such,
+            # to everyone, instead of listing every queue as a change.
+            logger.info("Schedule published for %s after a quiet forecast", parsed_date)
+            first_update = True
+            diff = None
     elif first_update and parsed_date and not has_outages(parsed["schedule"]):
         # The provider announced "no outages planned" for a date we had not
         # seen. Worth recording so /schedule can answer, not worth a broadcast —
