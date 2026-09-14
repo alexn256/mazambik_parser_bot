@@ -86,11 +86,3 @@ def build_state(state: dict, parsed: dict) -> dict:
             del state[old_date]
 
     return state
-
-
-def get_latest_state(state: dict) -> tuple[str, dict] | None:
-    """Get the most recent date entry. Returns (date, entry) or None."""
-    if not state:
-        return None
-    latest_date = max(state.keys(), key=_date_sort_key)
-    return latest_date, state[latest_date]

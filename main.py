@@ -36,7 +36,7 @@ from parser import parse_schedule_image
 from poe_source import PoeParseError, fetch_days, has_outages
 from sender import broadcast, send_message
 from history import load_history, record_day, save_history
-from state import build_state, get_latest_state, is_new_day, load_state, save_state
+from state import build_state, is_new_day, load_state, save_state
 from stats import compute_stats
 from subscribers import (
     add_subscriber,
