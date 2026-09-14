@@ -11,9 +11,12 @@ from config import (
     BOT_TOKEN,
     CHANNEL_USERNAME,
     HISTORY_FILE_PATH,
+    POE_POLL_INTERVAL,
+    POE_SOURCE_ENABLED,
     QUEUE_LABELS,
     QUEUES_FILE_PATH,
     STATE_FILE_PATH,
+    TELEGRAM_SOURCE_ENABLED,
     SUBSCRIBERS_FILE_PATH,
     TELETHON_API_HASH,
     TELETHON_API_ID,
@@ -21,10 +24,16 @@ from config import (
     USER_CHAT_ID,
 )
 from diff import compute_diff
-from formatter import QUEUE_EMOJI, format_schedule
+from formatter import (
+    QUEUE_EMOJI,
+    SWITCH_WINDOW_MINUTES,
+    format_schedule,
+    format_stamp,
+)
 from queue_lookup import MAJOR_CITIES, QueueLookup
 from monitor import create_client, monitor_channel
 from parser import parse_schedule_image
+from poe_source import PoeParseError, fetch_days, has_outages
 from sender import broadcast, send_message
 from history import load_history, record_day, save_history
 from state import build_state, get_latest_state, is_new_day, load_state, save_state
@@ -77,6 +86,29 @@ def _format_duration(minutes: int) -> str:
     return f"{m} хв"
 
 
+def _minutes_to_time(minutes: int) -> str:
+    """Minutes since midnight as HH:MM, folding 1440 back to 00:00."""
+    minutes %= 24 * 60
+    return f"{minutes // 60:02d}:{minutes % 60:02d}"
+
+
+def _restoration_hint(outage: dict, now_minutes: int) -> str | None:
+    """Warn that power may return before the printed end of the outage.
+
+    Waiting for the light is where the soft half hour actually hurts: the range
+    says 15:00, the provider may switch at 14:35. Ranges no longer than the
+    switching window are all edge and have nothing useful to say.
+    """
+    start = _time_to_minutes(outage["start"])
+    end = _end_to_minutes(outage["end"])
+    window_start = end - SWITCH_WINDOW_MINUTES
+    if window_start <= start:
+        return None
+    if now_minutes < window_start:
+        return f"💡 Світло може з'явитись раніше — з {_minutes_to_time(window_start)}"
+    return "💡 Світло має з'явитись найближчим часом"
+
+
 def _find_next_range(ranges: list, after_minutes: int) -> dict | None:
     for r in sorted(ranges, key=lambda x: _time_to_minutes(x["start"])):
         if _time_to_minutes(r["start"]) > after_minutes:
@@ -97,8 +129,7 @@ async def send_current_status(chat_id: int) -> None:
     today = datetime.now(UKRAINE_TZ).strftime("%d.%m.%Y")
     entry = state.get(today)
     if not entry:
-        await send_message(BOT_TOKEN, chat_id,
-            "ℹ️ Графік на сьогодні ще не отримано.")
+        await send_message(BOT_TOKEN, chat_id, "ℹ️ Графік на сьогодні ще не отримано.")
         return
 
     ranges = entry["schedule"].get(queue, [])
@@ -118,6 +149,9 @@ async def send_current_status(chat_id: int) -> None:
         next_outage = _find_next_range(ranges, _end_to_minutes(current_outage["end"]))
         lines.append(f"🔴 Зараз відключення · черга {queue}")
         lines.append(f"до {current_outage['end']} (ще {_format_duration(remaining)})")
+        hint = _restoration_hint(current_outage, now_m)
+        if hint:
+            lines.append(hint)
         if next_outage:
             lines.append(f"Далі: світло з {current_outage['end']} до {next_outage['start']}")
         else:
@@ -132,7 +166,9 @@ async def send_current_status(chat_id: int) -> None:
             lines.append(f"Далі: відключення {next_outage['start']} – {next_outage['end']}")
         else:
             lines.append(f"💡 Зараз є світло · черга {queue}")
-            lines.append("Відключень більше не заплановано на сьогодні")
+            # "більше не" only makes sense if there were outages earlier today
+            lines.append("Відключень на сьогодні не заплановано" if not ranges
+                         else "Відключень більше не заплановано на сьогодні")
         image_name = "power_on.png"
 
     text = "\n".join(lines)
@@ -152,18 +188,44 @@ async def send_current_status(chat_id: int) -> None:
         await send_message(BOT_TOKEN, chat_id, text)
 
 
+async def _send_day_schedule(chat_id: int, date: str, entry: dict, when: str) -> None:
+    """Send one day's schedule, or the provider's "nothing planned" notice.
+
+    Since the provider is polled directly, an empty day is a published fact, not
+    a gap in our knowledge — and it deserves a plain answer rather than a grid
+    of twelve "немає відключень" lines.
+    """
+    queue = load_subscribers(SUBSCRIBERS_FILE_PATH).get(chat_id)
+    parsed = {
+        "date": date,
+        "timestamp": entry.get("last_timestamp"),
+        "updated_at": entry.get("updated_at"),
+        "schedule": entry["schedule"],
+    }
+
+    if not has_outages(parsed["schedule"]):
+        lines = [f"🟢 На {when} ({date}) відключень не прогнозується."]
+        stamp = format_stamp(parsed)
+        if stamp != "?":
+            lines.append(f"За даними Полтаваобленерго станом на {stamp}.")
+        await send_message(BOT_TOKEN, chat_id, "\n".join(lines))
+        return
+
+    await send_message(BOT_TOKEN, chat_id,
+                       format_schedule(parsed, diff=None, is_first=True, queue_filter=queue))
+
+
 async def send_current_schedule(chat_id: int) -> None:
-    """Send today's schedule (or latest if today's not available) to a single user."""
+    """Send today's schedule to a single user."""
     state = load_state(STATE_FILE_PATH)
     today = datetime.now(UKRAINE_TZ).strftime("%d.%m.%Y")
-    if today not in state:
+    entry = state.get(today)
+    if not entry:
         await send_message(BOT_TOKEN, chat_id,
-            "ℹ️ Графік на сьогодні ще не отримано. Очікуйте публікації у каналі.")
+            "ℹ️ Графік на сьогодні ще не опубліковано. "
+            "Щойно він з'явиться — надішлемо автоматично.")
         return
-    date, entry = today, state[today]
-    queue = load_subscribers(SUBSCRIBERS_FILE_PATH).get(chat_id)
-    parsed = {"date": date, "timestamp": entry.get("last_timestamp"), "schedule": entry["schedule"]}
-    await send_message(BOT_TOKEN, chat_id, format_schedule(parsed, diff=None, is_first=True, queue_filter=queue))
+    await _send_day_schedule(chat_id, today, entry, "сьогодні")
 
 
 async def send_tomorrow_schedule(chat_id: int) -> None:
@@ -173,15 +235,14 @@ async def send_tomorrow_schedule(chat_id: int) -> None:
     entry = state.get(tomorrow)
     if not entry:
         await send_message(BOT_TOKEN, chat_id,
-            "ℹ️ Графік на завтра ще не опубліковано.")
+            "ℹ️ Графік на завтра ще не опубліковано. "
+            "Зазвичай він з'являється ввечері.")
         return
-    queue = load_subscribers(SUBSCRIBERS_FILE_PATH).get(chat_id)
-    parsed = {"date": tomorrow, "timestamp": entry.get("last_timestamp"), "schedule": entry["schedule"]}
-    await send_message(BOT_TOKEN, chat_id, format_schedule(parsed, diff=None, is_first=True, queue_filter=queue))
+    await _send_day_schedule(chat_id, tomorrow, entry, "завтра")
 
 
 async def process_image(image_path: str, date: str | None = None, timestamp: str | None = None) -> bool:
-    """Full pipeline: parse image -> diff -> format -> send -> save state."""
+    """Fallback source: OCR a schedule screenshot, then run the common pipeline."""
     logger.info("Processing image: %s", image_path)
 
     try:
@@ -197,19 +258,43 @@ async def process_image(image_path: str, date: str | None = None, timestamp: str
         parsed["date"] = date
     if timestamp and not parsed["timestamp"]:
         parsed["timestamp"] = timestamp
+    parsed.setdefault("source", "telegram")
 
-    logger.info("Parsed schedule for date=%s time=%s", parsed["date"], parsed["timestamp"])
+    return await process_parsed(parsed)
+
+
+async def process_parsed(parsed: dict) -> bool:
+    """Common pipeline: diff against stored state -> format -> send -> save state.
+
+    Both sources feed this. Whichever arrives first wins; the other one then
+    produces an empty diff and is dropped, so the same schedule is never
+    announced twice.
+    """
+    parsed_date = parsed.get("date")
+    logger.info(
+        "Schedule for date=%s updated_at=%s source=%s",
+        parsed_date,
+        parsed.get("updated_at") or parsed.get("timestamp"),
+        parsed.get("source", "?"),
+    )
 
     state = load_state(STATE_FILE_PATH)
-    parsed_date = parsed.get("date")
     first_update = is_new_day(state, parsed_date)
 
     diff = None
     if not first_update and parsed_date:
         diff = compute_diff(state[parsed_date]["schedule"], parsed["schedule"])
         if not diff:
+            _refresh_stamp(state, parsed)
             logger.info("No changes detected, skipping notification")
             return False
+    elif first_update and parsed_date and not has_outages(parsed["schedule"]):
+        # The provider announced "no outages planned" for a date we had not
+        # seen. Worth recording so /schedule can answer, not worth a broadcast —
+        # otherwise every quiet day would wake every subscriber.
+        _persist(state, parsed)
+        logger.info("No outages announced for %s, recorded without notifying", parsed_date)
+        return False
 
     subscribers = load_subscribers(SUBSCRIBERS_FILE_PATH)
     if not subscribers:
@@ -227,18 +312,76 @@ async def process_image(image_path: str, date: str | None = None, timestamp: str
         msg = format_schedule(parsed, user_diff, first_update, queue_filter=queue)
         await send_message(BOT_TOKEN, chat_id, msg)
 
-    if parsed_date:
-        new_state = build_state(state, parsed)
-        save_state(new_state, STATE_FILE_PATH)
-        logger.info("State saved (update #%d for %s)", new_state[parsed_date]["update_count"], parsed_date)
-
-        try:
-            history = load_history(HISTORY_FILE_PATH)
-            save_history(record_day(history, parsed_date, parsed["schedule"]), HISTORY_FILE_PATH)
-        except Exception:
-            logger.exception("Failed to save history")
-
+    _persist(state, parsed)
     return True
+
+
+def _refresh_stamp(state: dict, parsed: dict) -> None:
+    """Record a re-publication that left the grid untouched.
+
+    The provider can restamp a schedule without changing a single cell. There is
+    nothing to announce, but "станом на" should still tell the truth, so the
+    stamp is written without touching update_count — that counter tracks
+    announced changes, and no change was announced.
+
+    A schedule recognised from a screenshot carries no provider stamp, so it
+    never overwrites one taken from the site.
+    """
+    updated_at = parsed.get("updated_at")
+    entry = state.get(parsed.get("date"))
+    if not entry or not updated_at or entry.get("updated_at") == updated_at:
+        return
+
+    entry["updated_at"] = updated_at
+    entry["last_timestamp"] = parsed.get("timestamp")
+    entry["source"] = parsed.get("source")
+    save_state(state, STATE_FILE_PATH)
+    logger.info("Stamp for %s refreshed to %s (schedule unchanged)",
+                parsed["date"], updated_at)
+
+
+def _persist(state: dict, parsed: dict) -> None:
+    """Write the schedule to state and to the history archive."""
+    parsed_date = parsed.get("date")
+    if not parsed_date:
+        return
+
+    new_state = build_state(state, parsed)
+    save_state(new_state, STATE_FILE_PATH)
+    logger.info("State saved (update #%d for %s)", new_state[parsed_date]["update_count"], parsed_date)
+
+    try:
+        history = load_history(HISTORY_FILE_PATH)
+        save_history(record_day(history, parsed_date, parsed["schedule"]), HISTORY_FILE_PATH)
+    except Exception:
+        logger.exception("Failed to save history")
+
+
+async def poll_site() -> None:
+    """Poll poe.pl.ua — the provider itself — for published schedules.
+
+    The endpoint answers year-round: outside outage periods it returns the
+    "not expected" notices instead of grids, so a quiet reply is a healthy
+    reply, not a failure.
+    """
+    logger.info("Polling poe.pl.ua every %ds", POE_POLL_INTERVAL)
+
+    while True:
+        try:
+            days = await fetch_days()
+            if not days:
+                logger.debug("poe.pl.ua has published nothing yet")
+            for day in days:
+                await process_parsed(day)
+        except PoeParseError:
+            # Shape changed on their side: louder than a network blip, because
+            # it means the parser needs a human, and the bot is now blind.
+            logger.exception("poe.pl.ua markup no longer matches the parser")
+        except Exception:
+            logger.exception("Failed to fetch schedule from poe.pl.ua, retrying in %ds",
+                             POE_POLL_INTERVAL)
+
+        await asyncio.sleep(POE_POLL_INTERVAL)
 
 
 def _queue_emoji(queue: str) -> str:
@@ -771,14 +914,21 @@ async def main():
         add_subscriber(USER_CHAT_ID, SUBSCRIBERS_FILE_PATH)
         logger.info("Seeded initial subscriber: %d", USER_CHAT_ID)
 
-    client = create_client(TELETHON_API_ID, TELETHON_API_HASH, TELETHON_SESSION_STRING)
-    await client.connect()
-    logger.info("Bot is running.")
+    tasks = [poll_commands()]
 
-    await asyncio.gather(
-        monitor_channel(client, CHANNEL_USERNAME, process_image),
-        poll_commands(),
-    )
+    if POE_SOURCE_ENABLED:
+        tasks.append(poll_site())
+
+    if TELEGRAM_SOURCE_ENABLED:
+        client = create_client(TELETHON_API_ID, TELETHON_API_HASH, TELETHON_SESSION_STRING)
+        await client.connect()
+        tasks.append(monitor_channel(client, CHANNEL_USERNAME, process_image))
+
+    if not (POE_SOURCE_ENABLED or TELEGRAM_SOURCE_ENABLED):
+        logger.warning("Both schedule sources are disabled — the bot will only answer commands")
+
+    logger.info("Bot is running.")
+    await asyncio.gather(*tasks)
 
 
 if __name__ == "__main__":

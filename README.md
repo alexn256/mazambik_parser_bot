@@ -13,7 +13,11 @@ Automatically reads schedules from the [@mo3ambik_gpv_1_2](https://t.me/mo3ambik
 ## Features
 
 ### Automatic schedule monitoring
-The bot watches the channel in real time. As soon as a new schedule image appears, it recognizes it and broadcasts to all subscribers.
+The bot polls **poe.pl.ua** — the provider itself — through the same endpoint the site's own page uses, and broadcasts a schedule as soon as the provider publishes it. No waiting for anyone to repost a screenshot.
+
+Publication time comes from the provider's own "last updated" stamp, so "станом на …" is the moment the schedule actually appeared or changed — including schedules published the evening before, where a Telegram post time would have been wrong by hours.
+
+The Telegram channel stays on as a fallback: if the site is unreachable but a schedule screenshot is posted, the bot still recognizes it. Whichever source arrives first wins; the other produces no diff and is dropped, so nothing is announced twice. Either source can be turned off via `POE_SOURCE_ENABLED` / `TELEGRAM_SOURCE_ENABLED`.
 
 ### Personal notifications by queue
 Each subscriber selects their sub-queue (e.g. `3.2`). The bot sends only the information relevant to that queue — with a progress bar and total hours without power.
@@ -95,6 +99,7 @@ Personal schedule (queue selected) adds a day summary:
 ## Tech stack
 
 - Python 3.12
-- OpenCV + Tesseract OCR
+- httpx (poe.pl.ua polling — the primary source)
+- OpenCV + Tesseract OCR (Telegram screenshot fallback)
 - Telethon (channel monitoring)
 - Telegram Bot API

@@ -11,6 +11,17 @@ BOT_TOKEN = os.environ["BOT_TOKEN"]
 CHANNEL_USERNAME = os.environ["CHANNEL_USERNAME"]
 USER_CHAT_ID = int(os.environ["USER_CHAT_ID"])
 
+def _flag(name: str, default: str = "1") -> bool:
+    return os.getenv(name, default).strip().lower() not in ("0", "false", "no", "off")
+
+
+# poe.pl.ua is the primary source: the provider's own page, with the provider's
+# own "last updated" stamp. The Telegram channel stays on as a fallback for the
+# case where the site is unreachable but someone reposts a screenshot.
+POE_SOURCE_ENABLED = _flag("POE_SOURCE_ENABLED")
+POE_POLL_INTERVAL = int(os.getenv("POE_POLL_INTERVAL", "300"))
+TELEGRAM_SOURCE_ENABLED = _flag("TELEGRAM_SOURCE_ENABLED")
+
 STATE_FILE_PATH = os.getenv("STATE_FILE_PATH", "./state.json")
 SUBSCRIBERS_FILE_PATH = os.getenv("SUBSCRIBERS_FILE_PATH", "./subscribers.json")
 HISTORY_FILE_PATH = os.getenv("HISTORY_FILE_PATH", "./history.json")

@@ -9,6 +9,15 @@ QUEUE_EMOJI = {
     "6": "\U0001f7e3",  # 🟣
 }
 
+# Both edges of a published range are soft by half an hour: the provider cuts
+# power within 30 min of the start and restores it during the last 30 min.
+SWITCH_WINDOW_MINUTES = 30
+
+SWITCHING_NOTE = (
+    "⏱ Вимикають упродовж 30 хв після початку,\n"
+    "   вмикають в останні 30 хв інтервалу."
+)
+
 CHANGE_EMOJI = {
     "removed": "❌",       # ❌
     "added": "➕",         # ➕
@@ -43,6 +52,23 @@ def _queue_block(q_num: int, schedule: dict) -> str:
     )
 
 
+def format_stamp(parsed: dict) -> str:
+    """When the schedule was published or last changed.
+
+    Prefers the provider's own stamp. Its date is dropped when it matches the
+    schedule's own date, so same-day updates read as a plain time; a schedule
+    published the evening before keeps its date, because that difference is
+    exactly what a reader needs to see.
+    """
+    updated_at = parsed.get("updated_at")
+    if not updated_at:
+        return parsed.get("timestamp") or "?"
+    stamp_date, _, stamp_time = updated_at.partition(" ")
+    if stamp_time and stamp_date == parsed.get("date"):
+        return stamp_time
+    return updated_at
+
+
 def format_schedule(
     parsed: dict,
     diff: list[dict] | None,
@@ -52,7 +78,7 @@ def format_schedule(
     lines = []
 
     date_str = parsed.get("date") or "невідома дата"
-    time_str = parsed.get("timestamp") or "?"
+    time_str = format_stamp(parsed)
 
     if is_first:
         lines.append(f"⚡ Графік відключень на {date_str} (станом на {time_str})")
@@ -68,6 +94,7 @@ def format_schedule(
         emoji = QUEUE_EMOJI[q_num]
         lines.append(f"{emoji} <b>{q_num} черга</b>")
         ranges = schedule.get(queue_filter, [])
+        has_ranges = bool(ranges)
         lines.append(f"  {queue_filter} · {_fmt_ranges(ranges)}")
 
         minutes_off = _total_outage_minutes(ranges)
@@ -77,6 +104,7 @@ def format_schedule(
         lines.append(f"🕯️ {minutes_off / 60:.1f} год без світла")
         lines.append(f"💡 {minutes_on / 60:.1f} год зі світлом")
     else:
+        has_ranges = any(schedule.values())
         for q_num in range(1, 7):
             lines.append(_queue_block(q_num, schedule))
 
@@ -91,5 +119,12 @@ def format_schedule(
         for change in display_diff:
             emoji = CHANGE_EMOJI.get(change["type"], "\U0001f539")
             lines.append(f"{emoji} {change['detail']}")
+
+    # The boundaries of every range are soft by the same half hour, so this is
+    # said once at the bottom rather than repeated beside each of the ~48 times
+    # a full schedule prints. Pointless when nothing is switched off at all.
+    if has_ranges:
+        lines.append("")
+        lines.append(SWITCHING_NOTE)
 
     return "\n".join(lines)

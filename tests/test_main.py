@@ -1,5 +1,14 @@
+import asyncio
+
 import pytest
-from main import _time_to_minutes, _format_duration, _find_next_range
+import main
+from main import (
+    _find_next_range,
+    _format_duration,
+    _refresh_stamp,
+    _restoration_hint,
+    _time_to_minutes,
+)
 
 
 class TestTimeToMinutes:
@@ -57,3 +66,138 @@ class TestFindNextRange:
     def test_empty_ranges(self):
         result = _find_next_range([], after_minutes=0)
         assert result is None
+
+
+class TestRefreshStamp:
+    """A re-publication that changed nothing still moves the provider's stamp."""
+
+    DATE = "10.04.2026"
+
+    @pytest.fixture
+    def saved(self, monkeypatch):
+        """Capture save_state instead of writing over the real state file."""
+        calls = []
+        monkeypatch.setattr(main, "save_state", lambda state, path: calls.append(state))
+        return calls
+
+    def _state(self):
+        return {self.DATE: {
+            "last_timestamp": "22:18",
+            "updated_at": "10.04.2026 22:18",
+            "source": "poe.pl.ua",
+            "schedule": {"1.1": []},
+            "update_count": 3,
+        }}
+
+    def test_newer_stamp_is_written(self, saved):
+        state = self._state()
+        _refresh_stamp(state, {
+            "date": self.DATE,
+            "timestamp": "08:05",
+            "updated_at": "11.04.2026 08:05",
+            "source": "poe.pl.ua",
+        })
+        assert state[self.DATE]["updated_at"] == "11.04.2026 08:05"
+        assert state[self.DATE]["last_timestamp"] == "08:05"
+        assert len(saved) == 1
+
+    def test_update_count_is_untouched(self, saved):
+        state = self._state()
+        _refresh_stamp(state, {
+            "date": self.DATE,
+            "timestamp": "08:05",
+            "updated_at": "11.04.2026 08:05",
+        })
+        # update_count tracks announced changes, and nothing was announced
+        assert state[self.DATE]["update_count"] == 3
+
+    def test_identical_stamp_writes_nothing(self, saved):
+        state = self._state()
+        _refresh_stamp(state, {
+            "date": self.DATE,
+            "timestamp": "22:18",
+            "updated_at": "10.04.2026 22:18",
+        })
+        assert saved == []
+
+    def test_screenshot_without_a_stamp_never_clobbers_the_site_one(self, saved):
+        state = self._state()
+        _refresh_stamp(state, {
+            "date": self.DATE,
+            "timestamp": "09:41",
+            "source": "telegram",
+        })
+        assert state[self.DATE]["updated_at"] == "10.04.2026 22:18"
+        assert state[self.DATE]["source"] == "poe.pl.ua"
+        assert saved == []
+
+    def test_unknown_date_is_ignored(self, saved):
+        state = self._state()
+        _refresh_stamp(state, {"date": "01.01.2027", "updated_at": "01.01.2027 10:00"})
+        assert saved == []
+
+
+class TestSendDaySchedule:
+    """A day the provider announced as quiet is a fact, not a missing schedule."""
+
+    @pytest.fixture
+    def sent(self, monkeypatch):
+        messages = []
+        async def fake_send(token, chat_id, text):
+            messages.append(text)
+        monkeypatch.setattr(main, "send_message", fake_send)
+        monkeypatch.setattr(main, "load_subscribers", lambda path: {42: "1.1"})
+        return messages
+
+    QUIET = {
+        "last_timestamp": "20:19",
+        "updated_at": "13.09.2026 20:19",
+        "schedule": {f"{q}.{s}": [] for q in range(1, 7) for s in (1, 2)},
+    }
+    BUSY = {
+        "last_timestamp": "22:18",
+        "updated_at": "14.09.2026 22:18",
+        "schedule": {"1.1": [{"start": "08:00", "end": "10:00"}]},
+    }
+
+    def test_quiet_day_states_it_plainly(self, sent):
+        asyncio.run(main._send_day_schedule(42, "14.09.2026", self.QUIET, "сьогодні"))
+        assert "не прогнозується" in sent[0]
+        assert "немає відключень" not in sent[0]
+
+    def test_quiet_day_cites_the_provider_stamp(self, sent):
+        asyncio.run(main._send_day_schedule(42, "14.09.2026", self.QUIET, "сьогодні"))
+        assert "13.09.2026 20:19" in sent[0]
+
+    def test_quiet_day_without_a_stamp_omits_the_source_line(self, sent):
+        entry = {**self.QUIET, "updated_at": None, "last_timestamp": None}
+        asyncio.run(main._send_day_schedule(42, "14.09.2026", entry, "сьогодні"))
+        assert "станом на" not in sent[0]
+
+    def test_day_with_outages_still_gets_the_grid(self, sent):
+        asyncio.run(main._send_day_schedule(42, "14.09.2026", self.BUSY, "завтра"))
+        assert "08:00–10:00" in sent[0]
+
+
+class TestRestorationHint:
+    """The printed end of an outage is the worst case, not a promise."""
+
+    def test_names_the_earliest_restoration_time(self):
+        outage = {"start": "13:00", "end": "15:00"}
+        assert _restoration_hint(outage, now_minutes=13 * 60 + 40) == (
+            "💡 Світло може з'явитись раніше — з 14:30"
+        )
+
+    def test_inside_the_window_it_stops_naming_a_time(self):
+        outage = {"start": "13:00", "end": "15:00"}
+        assert _restoration_hint(outage, now_minutes=14 * 60 + 40) == (
+            "💡 Світло має з'явитись найближчим часом"
+        )
+
+    def test_outage_ending_at_midnight(self):
+        outage = {"start": "22:00", "end": "00:00"}
+        assert "23:30" in _restoration_hint(outage, now_minutes=22 * 60)
+
+    def test_outage_no_longer_than_the_window_says_nothing(self):
+        # A lone switching cell is all edge — there is no "earlier" to promise
+        assert _restoration_hint({"start": "00:00", "end": "00:30"}, 0) is None

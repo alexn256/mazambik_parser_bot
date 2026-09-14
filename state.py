@@ -71,6 +71,10 @@ def build_state(state: dict, parsed: dict) -> dict:
 
     state[date] = {
         "last_timestamp": parsed.get("timestamp"),
+        # Provider's own "DD.MM.YYYY HH:MM" stamp when the schedule came from
+        # the site; absent for schedules recognised from a Telegram screenshot.
+        "updated_at": parsed.get("updated_at"),
+        "source": parsed.get("source"),
         "schedule": parsed["schedule"],
         "update_count": update_count,
     }
