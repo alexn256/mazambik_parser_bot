@@ -1,5 +1,7 @@
 import asyncio
 
+from datetime import datetime
+
 import pytest
 import main
 import sender
@@ -312,3 +314,38 @@ class TestProviderStampLine:
         line = main._provider_stamp_line(
             {"date": "15.09.2026", "updated_at": "15.09.2026 08:30"})
         assert line.endswith("станом на 08:30.")
+
+
+class TestIsStale:
+    """Only today and tomorrow exist; a past date can only be a stale reply."""
+
+    def _offset(self, days):
+        from datetime import timedelta
+        return (datetime.now(main.UKRAINE_TZ) + timedelta(days=days)).strftime("%d.%m.%Y")
+
+    def test_today_is_current(self):
+        assert main._is_stale(self._offset(0)) is False
+
+    def test_tomorrow_is_current(self):
+        assert main._is_stale(self._offset(1)) is False
+
+    def test_yesterday_is_stale(self):
+        # State keeps two days, so yesterday may be pruned — reprocessing it
+        # would announce finished outages as news
+        assert main._is_stale(self._offset(-1)) is True
+
+    def test_unparseable_date_is_not_dropped(self):
+        # Better to let the pipeline judge it than to silently swallow a day
+        assert main._is_stale(None) is False
+        assert main._is_stale("not a date") is False
+
+
+class TestStatePruning:
+    """State holds exactly the two days the provider publishes."""
+
+    def test_rollover_drops_the_day_before_yesterday(self):
+        from state import build_state
+        state = {}
+        for date in ("14.09.2026", "15.09.2026", "16.09.2026"):
+            state = build_state(state, {"date": date, "schedule": {}, "timestamp": "20:00"})
+        assert sorted(state) == ["15.09.2026", "16.09.2026"]

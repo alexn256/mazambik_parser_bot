@@ -401,6 +401,22 @@ def _persist(state: dict, parsed: dict) -> None:
         logger.exception("Failed to save history")
 
 
+def _is_stale(date: str) -> bool:
+    """True for a schedule whose day is already over.
+
+    The provider only ever publishes today and tomorrow, and tomorrow's grid
+    appears in the evening. So a past date can only mean the endpoint served
+    something stale — and since state keeps just two days, that date may well
+    have been pruned, which would make the bot announce yesterday's outages
+    as news.
+    """
+    try:
+        day = datetime.strptime(date, "%d.%m.%Y").date()
+    except (TypeError, ValueError):
+        return False
+    return day < datetime.now(UKRAINE_TZ).date()
+
+
 async def poll_site() -> None:
     """Poll poe.pl.ua — the provider itself — for published schedules.
 
@@ -416,6 +432,9 @@ async def poll_site() -> None:
             if not days:
                 logger.debug("poe.pl.ua has published nothing yet")
             for day in days:
+                if _is_stale(day.get("date")):
+                    logger.info("Ignoring stale schedule for %s", day.get("date"))
+                    continue
                 await process_parsed(day)
         except PoeParseError:
             # Shape changed on their side: louder than a network blip, because
