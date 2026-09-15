@@ -22,9 +22,13 @@ Changes are detected by comparing the grid itself, not the stamp. A restamped bu
 A Telegram channel stays wired up as a fallback: if the site is unreachable but a schedule screenshot is posted somewhere, the bot still recognizes it via OCR. Whichever source arrives first wins; the other produces no diff and is dropped, so nothing is announced twice. Either source can be turned off — see [Configuration](#configuration).
 
 ### The provider's table, as a picture
-Every schedule message is preceded by the grid subscribers are used to seeing on the site — all six queues, half-hour cells, the "обсяг черг" preamble and the provider's timestamp.
+Every schedule arrives as the grid subscribers are used to seeing on the site — all six queues, half-hour cells, the "обсяг черг" preamble and the provider's timestamp — with the text below it as the photo's caption, so it is one message rather than two. A schedule too long for Telegram's 1024-character caption follows as its own message instead.
 
-It is drawn from the parsed schedule with Pillow, not captured from the page: no headless browser in the image, and it works for schedules recognised from a screenshot too. If it cannot be drawn — missing fonts, anything unexpected — the text message still goes out.
+It is drawn from the parsed schedule with Pillow, not captured from the page: no headless browser in the image, and it works for schedules recognised from a screenshot too. Colours, geometry and type were measured off real screenshots of the site, so it reads as one rather than as a chart of our own.
+
+If it cannot be drawn — missing fonts, anything unexpected — the schedule still goes out as text. Quiet days and cancellations carry no picture: there is no grid to draw.
+
+A rendered picture is cached, keyed by what it contains, and uploaded once per broadcast: Telegram files the photo under an id, and the rest of the subscribers are sent that id rather than 50KB each.
 
 ### Personal notifications by queue
 Each subscriber selects their sub-queue (e.g. `3.2`). The bot sends only the information relevant to that queue — with a progress bar and total hours without power.
@@ -158,6 +162,13 @@ Copy `.env.example` to `.env`. Beyond the Telegram credentials:
 | `POE_SOURCE_ENABLED` | `1` | Poll poe.pl.ua — the primary source |
 | `POE_POLL_INTERVAL` | `300` | Seconds between polls |
 | `TELEGRAM_SOURCE_ENABLED` | `1` | Keep the screenshot-OCR fallback running |
+
+The Dockerfile installs everything the bot needs. Running it outside Docker also needs **fonts-liberation** (the schedule picture is set in Liberation Sans) and **tesseract-ocr-ukr** for the screenshot fallback; without the fonts the bot still works, it just sends schedules as text.
+
+```
+pip install -r requirements-dev.txt   # runtime deps plus pytest
+python -m pytest tests/
+```
 
 ## Tech stack
 
