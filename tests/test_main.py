@@ -140,6 +140,11 @@ class TestRefreshStamp:
         assert saved == []
 
 
+def delivered(messages, photos):
+    """Everything a subscriber actually read: captions count as text."""
+    return [t for _, t in messages] + [c for _, _, c in photos if c]
+
+
 @pytest.fixture
 def photos(monkeypatch):
     """Stub the photo upload; without it these tests hit the real Bot API.
@@ -151,7 +156,7 @@ def photos(monkeypatch):
     sent = []
 
     async def fake_photo(token, chat_id, photo, caption=None):
-        sent.append((chat_id, photo))
+        sent.append((chat_id, photo, caption))
         # Telegram answers an upload with the id it filed the photo under
         return photo if isinstance(photo, str) else "file-id-1"
 
@@ -196,9 +201,11 @@ class TestSendDaySchedule:
         asyncio.run(main._send_day_schedule(42, "14.09.2026", entry, "сьогодні"))
         assert "станом на" not in sent[0]
 
-    def test_day_with_outages_still_gets_the_grid(self, sent):
+    def test_day_with_outages_still_gets_the_grid(self, sent, photos):
         asyncio.run(main._send_day_schedule(42, "14.09.2026", self.BUSY, "завтра"))
-        assert "08:00–10:00" in sent[0]
+        # short enough to ride along as the picture's caption
+        assert sent == []
+        assert "08:00–10:00" in photos[0][2]
 
 
 class TestRestorationHint:
@@ -251,27 +258,28 @@ class TestQuietForecastThenSchedule:
         asyncio.run(main.process_parsed(self._day(self.EMPTY, "14.09.2026 09:00")))
         assert pipeline == []
 
-    def test_later_grid_reads_as_a_first_publication(self, pipeline):
+    def test_later_grid_reads_as_a_first_publication(self, pipeline, photos):
         asyncio.run(main.process_parsed(self._day(self.EMPTY, "14.09.2026 09:00")))
         asyncio.run(main.process_parsed(self._day(self.GRID, "14.09.2026 20:04")))
-        text = pipeline[0][1]
+        text = delivered(pipeline, photos)[0]
         assert "Графік відключень" in text
         assert "Оновлення графіку" not in text
         assert "з'явились відключення" not in text
 
-    def test_it_reaches_subscribers_of_untouched_queues_too(self, pipeline):
+    def test_it_reaches_subscribers_of_untouched_queues_too(self, pipeline, photos):
         asyncio.run(main.process_parsed(self._day(self.EMPTY, "14.09.2026 09:00")))
         asyncio.run(main.process_parsed(self._day(self.GRID, "14.09.2026 20:04")))
         # 4.2 has no outages in this grid, but a first publication goes to all
-        assert sorted(chat_id for chat_id, _ in pipeline) == [1, 2]
+        assert sorted(chat_id for chat_id, _, _ in photos) == [1, 2]
 
-    def test_a_later_correction_is_still_an_update(self, pipeline):
+    def test_a_later_correction_is_still_an_update(self, pipeline, photos):
         asyncio.run(main.process_parsed(self._day(self.EMPTY, "14.09.2026 09:00")))
         asyncio.run(main.process_parsed(self._day(self.GRID, "14.09.2026 20:04")))
         pipeline.clear()
+        photos.clear()
         longer = {**self.GRID, "1.1": [{"start": "08:00", "end": "11:00"}]}
         asyncio.run(main.process_parsed(self._day(longer, "14.09.2026 22:30")))
-        assert "Оновлення графіку" in pipeline[0][1]
+        assert "Оновлення графіку" in delivered(pipeline, photos)[0]
 
 
 class TestCancellation:
@@ -383,6 +391,8 @@ class TestSchedulePicture:
         async def fake_send(token, chat_id, text):
             sent.append((chat_id, text))
         monkeypatch.setattr(main, "send_message", fake_send)
+        monkeypatch.setattr(sender, "send_message", fake_send)   # cancellations broadcast
+        monkeypatch.setattr(sender, "BROADCAST_DELAY", 0)
         monkeypatch.setattr(main, "load_subscribers", lambda path: {1: "1.1"})
         monkeypatch.setattr(main, "STATE_FILE_PATH", str(tmp_path / "state.json"))
         monkeypatch.setattr(main, "HISTORY_FILE_PATH", str(tmp_path / "history.json"))
@@ -396,11 +406,19 @@ class TestSchedulePicture:
         asyncio.run(main.process_parsed(self._day(self.GRID)))
         assert len(photos) == 1
         assert photos[0][1].startswith(b"\x89PNG")
+        assert "Графік відключень" in photos[0][2]
 
-    def test_picture_comes_before_the_text(self, pipeline, photos):
+    def test_short_schedule_rides_as_a_caption(self, pipeline, photos):
+        # one Bot API call per subscriber instead of two
         asyncio.run(main.process_parsed(self._day(self.GRID)))
-        # both went to the same chat; the photo was awaited first
-        assert photos[0][0] == pipeline[0][0]
+        assert pipeline == []
+        assert photos[0][2].startswith("⚡ Графік відключень")
+
+    def test_a_schedule_too_long_to_caption_follows_as_text(self, pipeline, photos, monkeypatch):
+        monkeypatch.setattr(main, "CAPTION_LIMIT", 10)
+        asyncio.run(main.process_parsed(self._day(self.GRID)))
+        assert photos[0][2] is None
+        assert "Графік відключень" in pipeline[0][1]
 
     def test_cancellation_carries_no_picture(self, pipeline, photos):
         asyncio.run(main.process_parsed(self._day(self.GRID)))
@@ -426,10 +444,16 @@ class TestPictureCache:
     @pytest.fixture
     def renders(self, monkeypatch, photos):
         calls = []
+
         def counting_render(schedule, stamp, intro=None):
             calls.append(stamp)
             return b"\x89PNG-fake"
+
+        async def fake_send(token, chat_id, text):
+            return True
+
         monkeypatch.setattr(main, "render_png", counting_render)
+        monkeypatch.setattr(main, "send_message", fake_send)   # used when a photo fails
         return calls
 
     def test_second_request_reuses_the_drawing(self, renders):
@@ -452,9 +476,8 @@ class TestPictureCache:
 
     def test_bytes_go_up_once_then_the_file_id_is_reused(self, renders, photos):
         picture = main._grid_picture(self.DAY)
-        asyncio.run(main._send_grid(1, picture))
-        asyncio.run(main._send_grid(2, picture))
-        asyncio.run(main._send_grid(3, picture))
+        for chat_id in (1, 2, 3):
+            asyncio.run(main._send_schedule(chat_id, picture, "текст"))
         assert photos[0][1] == b"\x89PNG-fake"      # first subscriber uploads
         assert photos[1][1] == "file-id-1"          # the rest just name it
         assert photos[2][1] == "file-id-1"
@@ -464,7 +487,7 @@ class TestPictureCache:
             return None
         monkeypatch.setattr(main, "send_photo", failing)
         picture = main._grid_picture(self.DAY)
-        asyncio.run(main._send_grid(1, picture))
+        asyncio.run(main._send_schedule(1, picture, "текст"))
         assert picture["file_id"] is None   # next send retries the upload
 
     def test_cache_does_not_grow_without_bound(self, renders):

@@ -10,6 +10,17 @@ MAX_ATTEMPTS = 3
 # broadcast sends keeps us far from the limit as subscribers grow.
 BROADCAST_DELAY = 0.05
 
+# One client for every send: a broadcast reuses the connection instead of
+# paying for a TLS handshake per subscriber.
+_client = None
+
+
+def _client_for_sends():
+    global _client
+    if _client is None:
+        _client = httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=10.0))
+    return _client
+
 
 async def _deliver(chat_id: int, kind: str, post):
     """Run one Bot API call with the retry policy every send shares.
@@ -65,8 +76,8 @@ async def send_message(bot_token: str, chat_id: int, text: str) -> bool:
         "parse_mode": "HTML",
     }
 
-    async with httpx.AsyncClient(timeout=30) as client:
-        return await _deliver(chat_id, "message", lambda: client.post(url, json=payload)) is not None
+    client = _client_for_sends()
+    return await _deliver(chat_id, "message", lambda: client.post(url, json=payload)) is not None
 
 
 def _file_id(resp) -> str | None:
@@ -91,19 +102,18 @@ async def send_photo(bot_token: str, chat_id: int, photo: bytes | str,
         data["caption"] = caption
         data["parse_mode"] = "HTML"
 
+    client = _client_for_sends()
+
     if isinstance(photo, str):
         data["photo"] = photo
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await _deliver(chat_id, "photo", lambda: client.post(url, data=data))
+        resp = await _deliver(chat_id, "photo", lambda: client.post(url, data=data))
         return photo if resp is not None else None
 
-    # Uploading bytes is slower than posting a form, hence the longer timeout
-    async with httpx.AsyncClient(timeout=60) as client:
-        resp = await _deliver(
-            chat_id, "photo",
-            lambda: client.post(url, data=data,
-                                files={"photo": ("schedule.png", photo, "image/png")}),
-        )
+    resp = await _deliver(
+        chat_id, "photo",
+        lambda: client.post(url, data=data,
+                            files={"photo": ("schedule.png", photo, "image/png")}),
+    )
     return _file_id(resp) if resp is not None else None
 
 

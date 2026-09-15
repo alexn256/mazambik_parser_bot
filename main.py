@@ -37,7 +37,7 @@ from monitor import create_client, monitor_channel
 from parser import parse_schedule_image
 from poe_source import PoeParseError, fetch_days, format_stamp_ua, has_outages
 from grid_image import render_png
-from sender import broadcast, send_message, send_photo
+from sender import BROADCAST_DELAY, broadcast, send_message, send_photo
 from history import load_history, record_day, save_history
 from state import build_state, is_new_day, load_state, save_state
 from stats import compute_stats
@@ -197,6 +197,9 @@ async def send_current_status(chat_id: int) -> None:
 _pictures: OrderedDict[str, dict] = OrderedDict()
 PICTURE_CACHE_SIZE = 4
 
+# Telegram's limit on the text it will show under a photo
+CAPTION_LIMIT = 1024
+
 
 def _picture_key(schedule: dict, stamp: str, intro) -> str:
     payload = json.dumps([schedule, stamp, intro], sort_keys=True, ensure_ascii=False)
@@ -233,17 +236,29 @@ def _grid_picture(parsed: dict) -> dict | None:
     return entry
 
 
-async def _send_grid(chat_id: int, picture: dict | None) -> None:
-    """Send the schedule picture, uploading it only the first time.
+async def _send_schedule(chat_id: int, picture: dict | None, text: str) -> None:
+    """Deliver one schedule: the picture with the text under it where possible.
 
-    Telegram keeps an uploaded photo and addresses it by file_id afterwards, so
-    a broadcast pushes the bytes once and then just names them.
+    A caption keeps it to a single Bot API call per subscriber, which halves
+    what a broadcast costs. Telegram caps captions, so a long schedule still
+    goes as a photo followed by its text — and if the photo fails either way,
+    the text is sent on its own rather than lost.
+
+    The picture is uploaded only the first time: Telegram files it under a
+    file_id, and naming that id afterwards skips the upload entirely.
     """
     if not picture:
+        await send_message(BOT_TOKEN, chat_id, text)
         return
-    sent = await send_photo(BOT_TOKEN, chat_id, picture["file_id"] or picture["png"])
+
+    caption = text if len(text) <= CAPTION_LIMIT else None
+    sent = await send_photo(BOT_TOKEN, chat_id,
+                            picture["file_id"] or picture["png"], caption=caption)
     if sent and not picture["file_id"]:
         picture["file_id"] = sent
+
+    if caption is None or not sent:
+        await send_message(BOT_TOKEN, chat_id, text)
 
 
 def _provider_stamp_line(parsed: dict) -> str | None:
@@ -295,9 +310,8 @@ async def _send_day_schedule(chat_id: int, date: str, entry: dict, when: str) ->
         await send_message(BOT_TOKEN, chat_id, "\n".join(lines))
         return
 
-    await _send_grid(chat_id, _grid_picture(parsed))
-    await send_message(BOT_TOKEN, chat_id,
-                       format_schedule(parsed, diff=None, is_first=True, queue_filter=queue))
+    await _send_schedule(chat_id, _grid_picture(parsed),
+                         format_schedule(parsed, diff=None, is_first=True, queue_filter=queue))
 
 
 async def send_current_schedule(chat_id: int) -> None:
@@ -415,9 +429,9 @@ async def process_parsed(parsed: dict) -> bool:
         else:
             user_diff = diff
 
-        await _send_grid(chat_id, picture)
         msg = format_schedule(parsed, user_diff, first_update, queue_filter=queue)
-        await send_message(BOT_TOKEN, chat_id, msg)
+        await _send_schedule(chat_id, picture, msg)
+        await asyncio.sleep(BROADCAST_DELAY)
 
     _persist(state, parsed)
     return True
