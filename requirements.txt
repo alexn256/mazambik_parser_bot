@@ -1,5 +1,7 @@
 httpx>=0.25
 python-dotenv>=1.0
+# Draws the schedule picture. Needs fonts-liberation from the image.
+pillow>=10.0
 
 # Screenshot fallback (TELEGRAM_SOURCE_ENABLED): channel access and OCR.
 # Dropping the fallback drops these, tesseract-ocr and libgl1 from the image.

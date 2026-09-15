@@ -140,11 +140,22 @@ class TestRefreshStamp:
         assert saved == []
 
 
+@pytest.fixture
+def photos(monkeypatch):
+    """Stub the photo upload; without it these tests hit the real Bot API."""
+    sent = []
+    async def fake_photo(token, chat_id, png, caption=None):
+        sent.append((chat_id, png))
+        return True
+    monkeypatch.setattr(main, "send_photo", fake_photo)
+    return sent
+
+
 class TestSendDaySchedule:
     """A day the provider announced as quiet is a fact, not a missing schedule."""
 
     @pytest.fixture
-    def sent(self, monkeypatch):
+    def sent(self, monkeypatch, photos):
         messages = []
         async def fake_send(token, chat_id, text):
             messages.append(text)
@@ -214,7 +225,7 @@ class TestQuietForecastThenSchedule:
     GRID = {**EMPTY, "1.1": [{"start": "08:00", "end": "10:00"}]}
 
     @pytest.fixture
-    def pipeline(self, monkeypatch, tmp_path):
+    def pipeline(self, monkeypatch, tmp_path, photos):
         sent = []
         async def fake_send(token, chat_id, text):
             sent.append((chat_id, text))
@@ -263,7 +274,7 @@ class TestCancellation:
     GRID = {**EMPTY, "1.1": [{"start": "08:00", "end": "10:00"}]}
 
     @pytest.fixture
-    def pipeline(self, monkeypatch, tmp_path):
+    def pipeline(self, monkeypatch, tmp_path, photos):
         sent = []
         async def fake_send(token, chat_id, text):
             sent.append((chat_id, text))
@@ -349,3 +360,48 @@ class TestStatePruning:
         for date in ("14.09.2026", "15.09.2026", "16.09.2026"):
             state = build_state(state, {"date": date, "schedule": {}, "timestamp": "20:00"})
         assert sorted(state) == ["15.09.2026", "16.09.2026"]
+
+
+class TestSchedulePicture:
+    """The provider's table travels with the message, drawn from parsed data."""
+
+    DATE = "15.09.2026"
+    EMPTY = {f"{q}.{s}": [] for q in range(1, 7) for s in (1, 2)}
+    GRID = {**EMPTY, "1.1": [{"start": "08:00", "end": "10:00"}]}
+
+    @pytest.fixture
+    def pipeline(self, monkeypatch, tmp_path, photos):
+        sent = []
+        async def fake_send(token, chat_id, text):
+            sent.append((chat_id, text))
+        monkeypatch.setattr(main, "send_message", fake_send)
+        monkeypatch.setattr(main, "load_subscribers", lambda path: {1: "1.1"})
+        monkeypatch.setattr(main, "STATE_FILE_PATH", str(tmp_path / "state.json"))
+        monkeypatch.setattr(main, "HISTORY_FILE_PATH", str(tmp_path / "history.json"))
+        return sent
+
+    def _day(self, schedule):
+        return {"date": self.DATE, "schedule": schedule, "updated_at": "14.09.2026 20:04",
+                "timestamp": "20:04", "source": "poe.pl.ua", "intro": []}
+
+    def test_published_schedule_is_sent_as_a_picture_too(self, pipeline, photos):
+        asyncio.run(main.process_parsed(self._day(self.GRID)))
+        assert len(photos) == 1
+        assert photos[0][1].startswith(b"\x89PNG")
+
+    def test_picture_comes_before_the_text(self, pipeline, photos):
+        asyncio.run(main.process_parsed(self._day(self.GRID)))
+        # both went to the same chat; the photo was awaited first
+        assert photos[0][0] == pipeline[0][0]
+
+    def test_cancellation_carries_no_picture(self, pipeline, photos):
+        asyncio.run(main.process_parsed(self._day(self.GRID)))
+        photos.clear()
+        asyncio.run(main.process_parsed(self._day(self.EMPTY)))
+        assert photos == []
+
+    def test_a_failed_drawing_does_not_stop_the_message(self, pipeline, photos, monkeypatch):
+        monkeypatch.setattr(main, "render_png", lambda *a, **k: None)
+        asyncio.run(main.process_parsed(self._day(self.GRID)))
+        assert photos == []
+        assert "Графік відключень" in pipeline[0][1]

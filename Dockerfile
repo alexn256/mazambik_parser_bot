@@ -5,6 +5,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr-ukr \
     libgl1 \
     libglib2.0-0 \
+    fonts-liberation \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

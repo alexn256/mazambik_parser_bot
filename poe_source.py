@@ -28,6 +28,7 @@ merge `light_2` and `light_3` runs into one outage range, which reproduces the
 ranges the provider publishes in text.
 """
 
+import html as html_mod
 import logging
 import re
 
@@ -145,6 +146,32 @@ def _parse_stamp(block: str) -> str | None:
     return f"{int(day):02d}.{UA_MONTHS[month]:02d}.{year} {int(hour):02d}:{minute}"
 
 
+def _parse_intro(block: str) -> list[list[tuple[str, bool]]]:
+    """The "обсяг черг" preamble the provider prints above its table.
+
+    Returned as one list of (text, bold) runs per line, because the provider
+    bolds the parts that carry the numbers — the date, each time range, each
+    queue count — and the picture we draw reproduces that.
+    """
+    head = block.split("<table", 1)[0]
+    head = re.sub(r"<p\b.*?</p>", "", head, flags=re.DOTALL)  # the caption, drawn separately
+    head = re.sub(r"<div\b[^>]*>|</div>", "", head)
+
+    lines = []
+    for raw in re.split(r"<br\s*/?>", head):
+        runs = []
+        for bold_text, plain in re.findall(r"<b\b[^>]*>(.*?)</b>|([^<]+)", raw, re.DOTALL):
+            text = html_mod.unescape(re.sub(r"<[^>]+>", "", bold_text or plain))
+            text = re.sub(r"\s+", " ", text)
+            if text.strip():
+                runs.append((text, bool(bold_text)))
+        if runs:
+            runs[0] = (runs[0][0].lstrip(), runs[0][1])
+            runs[-1] = (runs[-1][0].rstrip(), runs[-1][1])
+            lines.append(runs)
+    return lines
+
+
 def _parse_day(block: str) -> dict:
     """Parse one `gpvinfodetail` block into the shape the bot pipeline expects."""
     match = DATE_RE.search(block)
@@ -161,6 +188,7 @@ def _parse_day(block: str) -> dict:
         # HH:MM kept for compatibility with the image pipeline's `timestamp`
         "timestamp": updated_at.split(" ")[1] if updated_at else None,
         "updated_at": updated_at,
+        "intro": _parse_intro(block) if schedule is not None else [],
         "schedule": schedule if schedule is not None else {
             _queue_label(i): [] for i in range(ROWS)
         },
@@ -217,6 +245,23 @@ async def fetch_days(
 
     async with httpx.AsyncClient(follow_redirects=True) as owned:
         return parse_response(await _request(owned, date))
+
+
+def format_stamp_ua(stamp: str | None) -> str:
+    """Turn "10.04.2026 22:18" back into the provider's own "10 квітня 2026 22:18".
+
+    The picture we draw is meant to pass for a screenshot of the site, and the
+    site prints its timestamp in words.
+    """
+    if not stamp:
+        return ""
+    match = re.match(r"(\d{2})\.(\d{2})\.(\d{4})(?:\s+(\d{2}:\d{2}))?$", stamp.strip())
+    if not match:
+        return stamp
+    day, month, year, time = match.groups()
+    names = {num: name for name, num in UA_MONTHS.items()}
+    text = f"{int(day)} {names[int(month)]} {year}"
+    return f"{text} {time}" if time else text
 
 
 def has_outages(schedule: dict) -> bool:

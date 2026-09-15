@@ -75,6 +75,9 @@ def build_state(state: dict, parsed: dict) -> dict:
         # the site; absent for schedules recognised from a Telegram screenshot.
         "updated_at": parsed.get("updated_at"),
         "source": parsed.get("source"),
+        # The provider's "обсяг черг" preamble, kept so the picture drawn for an
+        # on-demand request carries the same heading as the one broadcast.
+        "intro": parsed.get("intro") or [],
         "schedule": parsed["schedule"],
         "update_count": update_count,
     }

@@ -136,3 +136,53 @@ class TestParseFailures:
         with pytest.raises(PoeParseError):
             parse_response('<div class="gpvinfodetail"> no date here </div>')
 
+
+
+class TestParseIntro:
+    """The provider's "обсяг черг" preamble, kept for the picture we draw."""
+
+    def test_lines_are_returned_in_order(self, outage_day):
+        intro = outage_day["intro"]
+        assert len(intro) == 7  # the date sentence plus six volume lines
+
+    def test_bold_runs_survive(self, outage_day):
+        first = outage_day["intro"][0]
+        assert first[0][1] is False and "Полтавській області" in first[0][0]
+        assert first[1] == ("10 квітня 2026 року", True)
+
+    def test_volume_line_splits_into_weighted_runs(self, outage_day):
+        line = outage_day["intro"][1]
+        assert [t for t, _ in line] == [
+            "з 00:00 по 06:00", " запроваджений ГПВ в обсязі ", "1", " черг."
+        ]
+        assert [b for _, b in line] == [True, False, True, False]
+
+    def test_caption_is_not_part_of_the_intro(self, outage_day):
+        # "Порядок відключення черг" is drawn by the renderer, not carried as text
+        assert all("Порядок відключення" not in t
+                   for line in outage_day["intro"] for t, _ in line)
+
+    def test_quiet_day_has_no_intro(self):
+        day = parse_response(fixture("gpv_no_outages.html"))[0]
+        assert day["intro"] == []
+
+
+class TestFormatStampUa:
+    """The picture carries the provider's wording, not our compact date."""
+
+    def test_date_and_time(self):
+        from poe_source import format_stamp_ua
+        assert format_stamp_ua("10.04.2026 22:18") == "10 квітня 2026 22:18"
+
+    def test_leading_zero_is_dropped_like_the_site_does(self):
+        from poe_source import format_stamp_ua
+        assert format_stamp_ua("01.09.2026 08:05") == "1 вересня 2026 08:05"
+
+    def test_date_only(self):
+        from poe_source import format_stamp_ua
+        assert format_stamp_ua("10.04.2026") == "10 квітня 2026"
+
+    def test_nothing_to_format(self):
+        from poe_source import format_stamp_ua
+        assert format_stamp_ua(None) == ""
+        assert format_stamp_ua("whenever") == "whenever"

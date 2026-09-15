@@ -21,6 +21,11 @@ Changes are detected by comparing the grid itself, not the stamp. A restamped bu
 
 A Telegram channel stays wired up as a fallback: if the site is unreachable but a schedule screenshot is posted somewhere, the bot still recognizes it via OCR. Whichever source arrives first wins; the other produces no diff and is dropped, so nothing is announced twice. Either source can be turned off — see [Configuration](#configuration).
 
+### The provider's table, as a picture
+Every schedule message is preceded by the grid subscribers are used to seeing on the site — all six queues, half-hour cells, the "обсяг черг" preamble and the provider's timestamp.
+
+It is drawn from the parsed schedule with Pillow, not captured from the page: no headless browser in the image, and it works for schedules recognised from a screenshot too. If it cannot be drawn — missing fonts, anything unexpected — the text message still goes out.
+
 ### Personal notifications by queue
 Each subscriber selects their sub-queue (e.g. `3.2`). The bot sends only the information relevant to that queue — with a progress bar and total hours without power.
 
@@ -158,6 +163,7 @@ Copy `.env.example` to `.env`. Beyond the Telegram credentials:
 
 - Python 3.12
 - httpx (poe.pl.ua polling — the primary source)
+- Pillow + fonts-liberation (draws the schedule picture)
 - OpenCV + Tesseract OCR (screenshot fallback)
 - Telethon (channel monitoring for the fallback)
 - Telegram Bot API

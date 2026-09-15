@@ -33,8 +33,9 @@ from formatter import (
 from queue_lookup import MAJOR_CITIES, QueueLookup
 from monitor import create_client, monitor_channel
 from parser import parse_schedule_image
-from poe_source import PoeParseError, fetch_days, has_outages
-from sender import broadcast, send_message
+from poe_source import PoeParseError, fetch_days, format_stamp_ua, has_outages
+from grid_image import render_png
+from sender import broadcast, send_message, send_photo
 from history import load_history, record_day, save_history
 from state import build_state, is_new_day, load_state, save_state
 from stats import compute_stats
@@ -188,6 +189,18 @@ async def send_current_status(chat_id: int) -> None:
         await send_message(BOT_TOKEN, chat_id, text)
 
 
+def _grid_png(parsed: dict) -> bytes | None:
+    """The provider's table as a picture, or None when there is nothing to draw.
+
+    Drawn once per broadcast and reused for every subscriber: the grid is the
+    same for all of them, only the text below it differs.
+    """
+    if not has_outages(parsed.get("schedule") or {}):
+        return None
+    stamp = format_stamp_ua(parsed.get("updated_at") or parsed.get("date"))
+    return render_png(parsed["schedule"], stamp, parsed.get("intro"))
+
+
 def _provider_stamp_line(parsed: dict) -> str | None:
     """Attribution line for answers that carry no grid of their own.
 
@@ -225,6 +238,7 @@ async def _send_day_schedule(chat_id: int, date: str, entry: dict, when: str) ->
         "date": date,
         "timestamp": entry.get("last_timestamp"),
         "updated_at": entry.get("updated_at"),
+        "intro": entry.get("intro"),
         "schedule": entry["schedule"],
     }
 
@@ -236,6 +250,9 @@ async def _send_day_schedule(chat_id: int, date: str, entry: dict, when: str) ->
         await send_message(BOT_TOKEN, chat_id, "\n".join(lines))
         return
 
+    png = _grid_png(parsed)
+    if png:
+        await send_photo(BOT_TOKEN, chat_id, png)
     await send_message(BOT_TOKEN, chat_id,
                        format_schedule(parsed, diff=None, is_first=True, queue_filter=queue))
 
@@ -345,6 +362,8 @@ async def process_parsed(parsed: dict) -> bool:
         logger.warning("No subscribers, skipping send")
         return False
 
+    png = _grid_png(parsed)
+
     for chat_id, queue in subscribers.items():
         if not first_update and diff is not None and queue:
             user_diff = [c for c in diff if c["queue"] == queue]
@@ -353,6 +372,8 @@ async def process_parsed(parsed: dict) -> bool:
         else:
             user_diff = diff
 
+        if png:
+            await send_photo(BOT_TOKEN, chat_id, png)
         msg = format_schedule(parsed, user_diff, first_update, queue_filter=queue)
         await send_message(BOT_TOKEN, chat_id, msg)
 
