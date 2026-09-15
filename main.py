@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -189,16 +190,57 @@ async def send_current_status(chat_id: int) -> None:
         await send_message(BOT_TOKEN, chat_id, text)
 
 
-def _grid_png(parsed: dict) -> bytes | None:
+# Rendered pictures, keyed by what is drawn in them. Holds today and tomorrow;
+# a schedule that changes hashes differently and simply gets a new entry.
+_pictures: dict[str, dict] = {}
+PICTURE_CACHE_SIZE = 4
+
+
+def _picture_key(schedule: dict, stamp: str, intro) -> str:
+    payload = json.dumps([schedule, stamp, intro], sort_keys=True, ensure_ascii=False)
+    return hashlib.sha1(payload.encode("utf-8")).hexdigest()
+
+
+def _grid_picture(parsed: dict) -> dict | None:
     """The provider's table as a picture, or None when there is nothing to draw.
 
-    Drawn once per broadcast and reused for every subscriber: the grid is the
-    same for all of them, only the text below it differs.
+    Keyed by the drawing's own contents rather than by date: an amended
+    schedule cannot collide with the one it replaced, and the same day asked
+    for twice costs nothing the second time.
     """
     if not has_outages(parsed.get("schedule") or {}):
         return None
+
     stamp = format_stamp_ua(parsed.get("updated_at") or parsed.get("date"))
-    return render_png(parsed["schedule"], stamp, parsed.get("intro"))
+    intro = parsed.get("intro") or []
+    key = _picture_key(parsed["schedule"], stamp, intro)
+
+    cached = _pictures.get(key)
+    if cached:
+        return cached
+
+    png = render_png(parsed["schedule"], stamp, intro)
+    if png is None:
+        return None
+
+    entry = {"png": png, "file_id": None}
+    _pictures[key] = entry
+    while len(_pictures) > PICTURE_CACHE_SIZE:
+        _pictures.pop(next(iter(_pictures)))
+    return entry
+
+
+async def _send_grid(chat_id: int, picture: dict | None) -> None:
+    """Send the schedule picture, uploading it only the first time.
+
+    Telegram keeps an uploaded photo and addresses it by file_id afterwards, so
+    a broadcast pushes the bytes once and then just names them.
+    """
+    if not picture:
+        return
+    sent = await send_photo(BOT_TOKEN, chat_id, picture["file_id"] or picture["png"])
+    if sent and not picture["file_id"]:
+        picture["file_id"] = sent
 
 
 def _provider_stamp_line(parsed: dict) -> str | None:
@@ -250,9 +292,7 @@ async def _send_day_schedule(chat_id: int, date: str, entry: dict, when: str) ->
         await send_message(BOT_TOKEN, chat_id, "\n".join(lines))
         return
 
-    png = _grid_png(parsed)
-    if png:
-        await send_photo(BOT_TOKEN, chat_id, png)
+    await _send_grid(chat_id, _grid_picture(parsed))
     await send_message(BOT_TOKEN, chat_id,
                        format_schedule(parsed, diff=None, is_first=True, queue_filter=queue))
 
@@ -362,7 +402,7 @@ async def process_parsed(parsed: dict) -> bool:
         logger.warning("No subscribers, skipping send")
         return False
 
-    png = _grid_png(parsed)
+    picture = _grid_picture(parsed)
 
     for chat_id, queue in subscribers.items():
         if not first_update and diff is not None and queue:
@@ -372,8 +412,7 @@ async def process_parsed(parsed: dict) -> bool:
         else:
             user_diff = diff
 
-        if png:
-            await send_photo(BOT_TOKEN, chat_id, png)
+        await _send_grid(chat_id, picture)
         msg = format_schedule(parsed, user_diff, first_update, queue_filter=queue)
         await send_message(BOT_TOKEN, chat_id, msg)
 

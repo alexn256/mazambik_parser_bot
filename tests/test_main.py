@@ -142,11 +142,19 @@ class TestRefreshStamp:
 
 @pytest.fixture
 def photos(monkeypatch):
-    """Stub the photo upload; without it these tests hit the real Bot API."""
+    """Stub the photo upload; without it these tests hit the real Bot API.
+
+    Also empties the picture cache, which lives for the life of the process and
+    would otherwise carry a drawing from one test into the next.
+    """
+    main._pictures.clear()
     sent = []
-    async def fake_photo(token, chat_id, png, caption=None):
-        sent.append((chat_id, png))
-        return True
+
+    async def fake_photo(token, chat_id, photo, caption=None):
+        sent.append((chat_id, photo))
+        # Telegram answers an upload with the id it filed the photo under
+        return photo if isinstance(photo, str) else "file-id-1"
+
     monkeypatch.setattr(main, "send_photo", fake_photo)
     return sent
 
@@ -405,3 +413,61 @@ class TestSchedulePicture:
         asyncio.run(main.process_parsed(self._day(self.GRID)))
         assert photos == []
         assert "Графік відключень" in pipeline[0][1]
+
+
+class TestPictureCache:
+    """The same drawing is neither rendered twice nor uploaded twice."""
+
+    DAY = {"date": "15.09.2026", "updated_at": "14.09.2026 20:04", "timestamp": "20:04",
+           "source": "poe.pl.ua", "intro": [],
+           "schedule": {**{f"{q}.{s}": [] for q in range(1, 7) for s in (1, 2)},
+                        "1.1": [{"start": "08:00", "end": "10:00"}]}}
+
+    @pytest.fixture
+    def renders(self, monkeypatch, photos):
+        calls = []
+        def counting_render(schedule, stamp, intro=None):
+            calls.append(stamp)
+            return b"\x89PNG-fake"
+        monkeypatch.setattr(main, "render_png", counting_render)
+        return calls
+
+    def test_second_request_reuses_the_drawing(self, renders):
+        main._grid_picture(self.DAY)
+        main._grid_picture(self.DAY)
+        assert len(renders) == 1
+
+    def test_an_amended_schedule_gets_its_own_drawing(self, renders):
+        main._grid_picture(self.DAY)
+        amended = {**self.DAY, "schedule": {**self.DAY["schedule"],
+                                            "1.1": [{"start": "08:00", "end": "11:00"}]}}
+        main._grid_picture(amended)
+        assert len(renders) == 2
+
+    def test_a_new_stamp_alone_redraws(self, renders):
+        # The picture prints the stamp, so a restamped day is a different picture
+        main._grid_picture(self.DAY)
+        main._grid_picture({**self.DAY, "updated_at": "14.09.2026 22:30"})
+        assert len(renders) == 2
+
+    def test_bytes_go_up_once_then_the_file_id_is_reused(self, renders, photos):
+        picture = main._grid_picture(self.DAY)
+        asyncio.run(main._send_grid(1, picture))
+        asyncio.run(main._send_grid(2, picture))
+        asyncio.run(main._send_grid(3, picture))
+        assert photos[0][1] == b"\x89PNG-fake"      # first subscriber uploads
+        assert photos[1][1] == "file-id-1"          # the rest just name it
+        assert photos[2][1] == "file-id-1"
+
+    def test_a_failed_upload_does_not_poison_the_cache(self, renders, monkeypatch):
+        async def failing(token, chat_id, photo, caption=None):
+            return None
+        monkeypatch.setattr(main, "send_photo", failing)
+        picture = main._grid_picture(self.DAY)
+        asyncio.run(main._send_grid(1, picture))
+        assert picture["file_id"] is None   # next send retries the upload
+
+    def test_cache_does_not_grow_without_bound(self, renders):
+        for i in range(main.PICTURE_CACHE_SIZE + 3):
+            main._grid_picture({**self.DAY, "updated_at": f"14.09.2026 20:{i:02d}"})
+        assert len(main._pictures) == main.PICTURE_CACHE_SIZE
