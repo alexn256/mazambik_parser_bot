@@ -1,5 +1,8 @@
+import asyncio
+
 import pytest
 
+import main
 import sender
 
 
@@ -25,6 +28,9 @@ def no_network(monkeypatch):
     so one left over from a previous asyncio.run would be unusable anyway.
     """
     sender._client = None
+    # asyncio primitives bind to the loop that first awaits them, and each test
+    # runs its own asyncio.run
+    main._broadcast_lock = asyncio.Lock()
     monkeypatch.setattr(sender.httpx, "AsyncClient", NoNetwork)
     yield
     sender._client = None

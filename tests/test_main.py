@@ -502,3 +502,72 @@ class TestPictureCache:
             main._grid_picture({**self.DAY, "updated_at": f"14.09.2026 21:{i:02d}"})
             main._grid_picture(self.DAY)          # still being served to users
         assert main._grid_picture(self.DAY) is today
+
+
+class TestBroadcastOverlap:
+    """Two schedules must never run the pipeline at the same time."""
+
+    def test_a_second_schedule_waits_its_turn(self, monkeypatch):
+        order = []
+
+        async def instrumented(parsed):
+            order.append(f"start {parsed['tag']}")
+            for _ in range(3):
+                await asyncio.sleep(0)      # plenty of chances to interleave
+            order.append(f"end {parsed['tag']}")
+            return True
+
+        monkeypatch.setattr(main, "_process_parsed", instrumented)
+
+        async def run():
+            await asyncio.gather(main.process_parsed({"tag": "a"}),
+                                 main.process_parsed({"tag": "b"}))
+
+        asyncio.run(run())
+        assert order in (["start a", "end a", "start b", "end b"],
+                         ["start b", "end b", "start a", "end a"])
+
+    def test_the_poller_skips_a_tick_instead_of_queueing_stale_data(self, monkeypatch):
+        fetched = []
+
+        async def fake_fetch(*args, **kwargs):
+            fetched.append(1)
+            return []
+
+        ticks = {"n": 0}
+
+        async def fake_sleep(seconds):
+            ticks["n"] += 1
+            if ticks["n"] >= 2:
+                raise asyncio.CancelledError
+
+        monkeypatch.setattr(main, "fetch_days", fake_fetch)
+        monkeypatch.setattr(main.asyncio, "sleep", fake_sleep)
+
+        async def run():
+            async with main._broadcast_lock:      # a broadcast is in flight
+                with pytest.raises(asyncio.CancelledError):
+                    await main.poll_site()
+
+        asyncio.run(run())
+        assert fetched == []    # the site was never asked while the lock was held
+
+    def test_the_poller_fetches_when_nothing_is_broadcasting(self, monkeypatch):
+        fetched = []
+
+        async def fake_fetch(*args, **kwargs):
+            fetched.append(1)
+            return []
+
+        async def stop(seconds):
+            raise asyncio.CancelledError
+
+        monkeypatch.setattr(main, "fetch_days", fake_fetch)
+        monkeypatch.setattr(main.asyncio, "sleep", stop)
+
+        async def run():
+            with pytest.raises(asyncio.CancelledError):
+                await main.poll_site()
+
+        asyncio.run(run())
+        assert fetched == [1]

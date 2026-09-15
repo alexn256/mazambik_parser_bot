@@ -200,6 +200,10 @@ PICTURE_CACHE_SIZE = 4
 # Telegram's limit on the text it will show under a photo
 CAPTION_LIMIT = 1024
 
+# Held for the whole read-state -> diff -> broadcast -> write-state sequence, so
+# the site poller and the Telegram fallback can never run it at the same time.
+_broadcast_lock = asyncio.Lock()
+
 
 def _picture_key(schedule: dict, stamp: str, intro) -> str:
     payload = json.dumps([schedule, stamp, intro], sort_keys=True, ensure_ascii=False)
@@ -368,7 +372,18 @@ async def process_parsed(parsed: dict) -> bool:
     Both sources feed this. Whichever arrives first wins; the other one then
     produces an empty diff and is dropped, so the same schedule is never
     announced twice.
+
+    Serialised: a broadcast takes as long as it takes to reach every
+    subscriber, and a second schedule arriving meanwhile would read the state
+    its predecessor has not written yet, diff against it, and then overwrite —
+    losing one of the two updates. Waiting costs a delay; interleaving costs
+    data.
     """
+    async with _broadcast_lock:
+        return await _process_parsed(parsed)
+
+
+async def _process_parsed(parsed: dict) -> bool:
     parsed_date = parsed.get("date")
     logger.info(
         "Schedule for date=%s updated_at=%s source=%s",
@@ -505,6 +520,13 @@ async def poll_site() -> None:
 
     while True:
         try:
+            if _broadcast_lock.locked():
+                # Fetching now would queue up behind the broadcast and then act
+                # on data read before it finished. Next tick refetches instead.
+                logger.info("Broadcast still running, skipping this poll")
+                await asyncio.sleep(POE_POLL_INTERVAL)
+                continue
+
             days = await fetch_days()
             if not days:
                 logger.debug("poe.pl.ua has published nothing yet")
