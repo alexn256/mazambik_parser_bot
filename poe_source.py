@@ -30,6 +30,7 @@ ranges the provider publishes in text.
 
 import html as html_mod
 import logging
+import os
 import re
 
 import httpx
@@ -52,6 +53,9 @@ HEADERS = {
 }
 
 REQUEST_TIMEOUT = 20.0
+
+# Optional proxy for provider requests only; empty means connect directly
+POE_PROXY = os.getenv("POE_PROXY", "").strip()
 
 UA_MONTHS = {
     "січня": 1, "лютого": 2, "березня": 3, "квітня": 4,
@@ -243,7 +247,10 @@ async def fetch_days(
     if client is not None:
         return parse_response(await _request(client, date))
 
-    async with httpx.AsyncClient(follow_redirects=True) as owned:
+    # The provider drops traffic from some hosting providers outright — the
+    # symptom is a connect timeout, not a refusal. POE_PROXY routes just these
+    # requests through somewhere it does answer, without moving the whole bot.
+    async with httpx.AsyncClient(follow_redirects=True, proxy=POE_PROXY or None) as owned:
         return parse_response(await _request(owned, date))
 
 

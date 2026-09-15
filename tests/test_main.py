@@ -2,6 +2,7 @@ import asyncio
 
 from datetime import datetime
 
+import httpx
 import pytest
 import main
 import sender
@@ -579,3 +580,49 @@ class TestLogsKeepTheTokenOut:
         # httpx logs "HTTP Request: GET https://api.telegram.org/bot<TOKEN>/..."
         # at INFO, which published the token to the deployment logs
         assert logging.getLogger("httpx").level >= logging.WARNING
+
+
+class TestUnreachableProvider:
+    """A host that cannot reach the provider must not drown its own log."""
+
+    def _run_polls(self, monkeypatch, error, ticks):
+        logged = []
+
+        async def failing_fetch(*args, **kwargs):
+            raise error
+
+        counter = {"n": 0}
+
+        async def fake_sleep(seconds):
+            counter["n"] += 1
+            if counter["n"] >= ticks:
+                raise asyncio.CancelledError
+
+        monkeypatch.setattr(main, "fetch_days", failing_fetch)
+        monkeypatch.setattr(main.asyncio, "sleep", fake_sleep)
+        monkeypatch.setattr(main.logger, "warning", lambda msg, *a: logged.append(("warning", msg % a)))
+        monkeypatch.setattr(main.logger, "error", lambda msg, *a: logged.append(("error", msg % a)))
+        monkeypatch.setattr(main.logger, "exception", lambda msg, *a: logged.append(("exception", msg % a)))
+
+        async def run():
+            with pytest.raises(asyncio.CancelledError):
+                await main.poll_site()
+
+        asyncio.run(run())
+        return logged
+
+    def test_a_connect_timeout_logs_one_line_not_a_traceback(self, monkeypatch):
+        logged = self._run_polls(monkeypatch, httpx.ConnectTimeout("timed out"), ticks=1)
+        assert [level for level, _ in logged] == ["warning"]
+        assert "ConnectTimeout" in logged[0][1]
+
+    def test_it_says_so_once_after_a_run_of_failures(self, monkeypatch):
+        logged = self._run_polls(monkeypatch, httpx.ConnectTimeout("timed out"),
+                                 ticks=main.UNREACHABLE_ALERT_AFTER + 2)
+        errors = [msg for level, msg in logged if level == "error"]
+        assert len(errors) == 1            # once, not on every poll
+        assert "POE_PROXY" in errors[0]
+
+    def test_an_unexpected_error_still_gets_its_traceback(self, monkeypatch):
+        logged = self._run_polls(monkeypatch, ValueError("something new"), ticks=1)
+        assert [level for level, _ in logged] == ["exception"]

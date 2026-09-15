@@ -204,6 +204,9 @@ PICTURE_CACHE_SIZE = 4
 # Telegram's limit on the text it will show under a photo
 CAPTION_LIMIT = 1024
 
+# Consecutive unreachable polls before the log says so once, loudly
+UNREACHABLE_ALERT_AFTER = 3
+
 # Held for the whole read-state -> diff -> broadcast -> write-state sequence, so
 # the site poller and the Telegram fallback can never run it at the same time.
 _broadcast_lock = asyncio.Lock()
@@ -521,6 +524,7 @@ async def poll_site() -> None:
     reply, not a failure.
     """
     logger.info("Polling poe.pl.ua every %ds", POE_POLL_INTERVAL)
+    unreachable = 0
 
     while True:
         try:
@@ -539,10 +543,26 @@ async def poll_site() -> None:
                     logger.info("Ignoring stale schedule for %s", day.get("date"))
                     continue
                 await process_parsed(day)
+            unreachable = 0
         except PoeParseError:
             # Shape changed on their side: louder than a network blip, because
             # it means the parser needs a human, and the bot is now blind.
             logger.exception("poe.pl.ua markup no longer matches the parser")
+            unreachable = 0
+        except httpx.TransportError as e:
+            # Some hosts cannot reach the provider at all — it drops their
+            # packets, which surfaces as a connect timeout every single poll.
+            # A stack trace per attempt buries the log in something that is a
+            # property of where the bot runs, not a fault in it.
+            unreachable += 1
+            logger.warning("poe.pl.ua unreachable (%s), attempt %d; retrying in %ds",
+                           type(e).__name__, unreachable, POE_POLL_INTERVAL)
+            if unreachable == UNREACHABLE_ALERT_AFTER:
+                logger.error(
+                    "poe.pl.ua has been unreachable for %d polls (~%d min). If this "
+                    "host is blocked, set POE_PROXY or move the bot closer to the "
+                    "provider; the Telegram fallback keeps working meanwhile.",
+                    unreachable, unreachable * POE_POLL_INTERVAL // 60)
         except Exception:
             logger.exception("Failed to fetch schedule from poe.pl.ua, retrying in %ds",
                              POE_POLL_INTERVAL)
