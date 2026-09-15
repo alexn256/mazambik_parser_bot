@@ -471,3 +471,11 @@ class TestPictureCache:
         for i in range(main.PICTURE_CACHE_SIZE + 3):
             main._grid_picture({**self.DAY, "updated_at": f"14.09.2026 20:{i:02d}"})
         assert len(main._pictures) == main.PICTURE_CACHE_SIZE
+
+    def test_the_day_in_use_survives_a_run_of_amendments(self, renders):
+        # FIFO eviction would drop today's grid while tomorrow is being amended
+        today = main._grid_picture(self.DAY)
+        for i in range(main.PICTURE_CACHE_SIZE + 2):
+            main._grid_picture({**self.DAY, "updated_at": f"14.09.2026 21:{i:02d}"})
+            main._grid_picture(self.DAY)          # still being served to users
+        assert main._grid_picture(self.DAY) is today

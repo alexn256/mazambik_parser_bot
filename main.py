@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -190,9 +191,10 @@ async def send_current_status(chat_id: int) -> None:
         await send_message(BOT_TOKEN, chat_id, text)
 
 
-# Rendered pictures, keyed by what is drawn in them. Holds today and tomorrow;
-# a schedule that changes hashes differently and simply gets a new entry.
-_pictures: dict[str, dict] = {}
+# Rendered pictures, keyed by what is drawn in them, least-recently-used last.
+# Bounded: a superseded schedule stops being asked for and falls out, so a long
+# run of amendments cannot pile drawings up in memory.
+_pictures: OrderedDict[str, dict] = OrderedDict()
 PICTURE_CACHE_SIZE = 4
 
 
@@ -217,6 +219,7 @@ def _grid_picture(parsed: dict) -> dict | None:
 
     cached = _pictures.get(key)
     if cached:
+        _pictures.move_to_end(key)   # today's grid stays put while amendments churn
         return cached
 
     png = render_png(parsed["schedule"], stamp, intro)
@@ -226,7 +229,7 @@ def _grid_picture(parsed: dict) -> dict | None:
     entry = {"png": png, "file_id": None}
     _pictures[key] = entry
     while len(_pictures) > PICTURE_CACHE_SIZE:
-        _pictures.pop(next(iter(_pictures)))
+        _pictures.popitem(last=False)
     return entry
 
 
