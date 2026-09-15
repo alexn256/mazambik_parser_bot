@@ -571,3 +571,11 @@ class TestBroadcastOverlap:
 
         asyncio.run(run())
         assert fetched == [1]
+
+
+class TestLogsKeepTheTokenOut:
+    def test_httpx_request_logging_is_silenced(self):
+        import logging
+        # httpx logs "HTTP Request: GET https://api.telegram.org/bot<TOKEN>/..."
+        # at INFO, which published the token to the deployment logs
+        assert logging.getLogger("httpx").level >= logging.WARNING

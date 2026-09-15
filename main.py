@@ -54,6 +54,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# httpx logs every request at INFO, and a Bot API URL carries the token in its
+# path — that put the bot's credentials into the deployment logs on every poll.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
 UKRAINE_TZ = timezone(timedelta(hours=3))
 
 try:
