@@ -20,6 +20,9 @@ def _flag(name: str, default: str = "1") -> bool:
 # case where the site is unreachable but someone reposts a screenshot.
 POE_SOURCE_ENABLED = _flag("POE_SOURCE_ENABLED")
 POE_POLL_INTERVAL = int(os.getenv("POE_POLL_INTERVAL", "300"))
+# Outside outage season the provider repeats "nothing planned" for weeks; asking
+# every 5 minutes buys nothing and costs proxy traffic.
+POE_QUIET_INTERVAL = int(os.getenv("POE_QUIET_INTERVAL", "1800"))
 TELEGRAM_SOURCE_ENABLED = _flag("TELEGRAM_SOURCE_ENABLED")
 
 STATE_FILE_PATH = os.getenv("STATE_FILE_PATH", "./state.json")

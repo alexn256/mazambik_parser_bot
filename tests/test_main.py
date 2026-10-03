@@ -626,3 +626,37 @@ class TestUnreachableProvider:
     def test_an_unexpected_error_still_gets_its_traceback(self, monkeypatch):
         logged = self._run_polls(monkeypatch, ValueError("something new"), ticks=1)
         assert [level for level, _ in logged] == ["exception"]
+
+
+class TestAdaptivePolling:
+    """The data decides how closely to watch; nobody flips a switch."""
+
+    QUIET = [{"schedule": {f"{q}.{s}": [] for q in range(1, 7) for s in (1, 2)}}]
+    ACTIVE = [{"schedule": {"1.1": [{"start": "08:00", "end": "10:00"}]}}]
+
+    def _at(self, hour):
+        return datetime(2026, 10, 3, hour, 0, tzinfo=main.UKRAINE_TZ)
+
+    def test_quiet_day_is_polled_rarely(self):
+        assert main._next_poll_delay(self.QUIET, self._at(10)) == main.POE_QUIET_INTERVAL
+
+    def test_published_grid_brings_back_close_watching(self):
+        assert main._next_poll_delay(self.ACTIVE, self._at(10)) == main.POE_POLL_INTERVAL
+
+    def test_evening_stays_fast_even_in_a_quiet_week(self):
+        # tomorrow's grid appears here; being late by half an hour is the one
+        # thing the slow interval must not cause
+        assert main._next_poll_delay(self.QUIET, self._at(20)) == main.POE_POLL_INTERVAL
+
+    def test_window_edges(self):
+        assert main._next_poll_delay(self.QUIET, self._at(17)) == main.POE_QUIET_INTERVAL
+        assert main._next_poll_delay(self.QUIET, self._at(18)) == main.POE_POLL_INTERVAL
+        assert main._next_poll_delay(self.QUIET, self._at(22)) == main.POE_POLL_INTERVAL
+        assert main._next_poll_delay(self.QUIET, self._at(23)) == main.POE_QUIET_INTERVAL
+
+    def test_nothing_published_at_all_counts_as_quiet(self):
+        assert main._next_poll_delay([], self._at(10)) == main.POE_QUIET_INTERVAL
+
+    def test_one_busy_day_among_quiet_ones_is_enough(self):
+        days = self.QUIET + self.ACTIVE
+        assert main._next_poll_delay(days, self._at(10)) == main.POE_POLL_INTERVAL

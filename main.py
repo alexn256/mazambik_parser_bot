@@ -14,6 +14,7 @@ from config import (
     CHANNEL_USERNAME,
     HISTORY_FILE_PATH,
     POE_POLL_INTERVAL,
+    POE_QUIET_INTERVAL,
     POE_SOURCE_ENABLED,
     QUEUE_LABELS,
     QUEUES_FILE_PATH,
@@ -206,6 +207,11 @@ CAPTION_LIMIT = 1024
 
 # Consecutive unreachable polls before the log says so once, loudly
 UNREACHABLE_ALERT_AFTER = 3
+
+# Hours (Ukraine time) when tomorrow's grid is published — measured from the
+# provider's own stamps: 20:04, 20:11, 20:19, 22:18. Polling stays fast here
+# even in a quiet week, so the first grid of a season is not missed.
+PUBLICATION_WINDOW = (18, 23)
 
 # Held for the whole read-state -> diff -> broadcast -> write-state sequence, so
 # the site poller and the Telegram fallback can never run it at the same time.
@@ -516,6 +522,25 @@ def _is_stale(date: str) -> bool:
     return day < datetime.now(UKRAINE_TZ).date()
 
 
+def _next_poll_delay(days: list, now: datetime | None = None) -> int:
+    """How long to wait before asking the provider again.
+
+    The answer is in the data: while the provider repeats "nothing planned",
+    weeks can pass with nothing to catch, and every request costs proxy
+    traffic. A published grid means the season is on and amendments arrive
+    during the day, so we go back to watching closely.
+
+    The evening window stays fast regardless — that is when tomorrow's grid
+    appears, and it is the one poll we must not be late for.
+    """
+    now = now or datetime.now(UKRAINE_TZ)
+    if PUBLICATION_WINDOW[0] <= now.hour < PUBLICATION_WINDOW[1]:
+        return POE_POLL_INTERVAL
+    if any(has_outages(d.get("schedule") or {}) for d in days):
+        return POE_POLL_INTERVAL
+    return POE_QUIET_INTERVAL
+
+
 async def poll_site() -> None:
     """Poll poe.pl.ua — the provider itself — for published schedules.
 
@@ -523,8 +548,10 @@ async def poll_site() -> None:
     "not expected" notices instead of grids, so a quiet reply is a healthy
     reply, not a failure.
     """
-    logger.info("Polling poe.pl.ua every %ds", POE_POLL_INTERVAL)
+    logger.info("Polling poe.pl.ua: every %ds while schedules run, %ds when quiet",
+                POE_POLL_INTERVAL, POE_QUIET_INTERVAL)
     unreachable = 0
+    delay = POE_POLL_INTERVAL
 
     while True:
         try:
@@ -544,19 +571,22 @@ async def poll_site() -> None:
                     continue
                 await process_parsed(day)
             unreachable = 0
+            delay = _next_poll_delay(days)
         except PoeParseError:
             # Shape changed on their side: louder than a network blip, because
             # it means the parser needs a human, and the bot is now blind.
             logger.exception("poe.pl.ua markup no longer matches the parser")
             unreachable = 0
+            delay = POE_POLL_INTERVAL
         except httpx.TransportError as e:
             # Some hosts cannot reach the provider at all — it drops their
             # packets, which surfaces as a connect timeout every single poll.
             # A stack trace per attempt buries the log in something that is a
             # property of where the bot runs, not a fault in it.
             unreachable += 1
+            delay = POE_POLL_INTERVAL   # keep checking, a failed connect costs nothing
             logger.warning("poe.pl.ua unreachable (%s), attempt %d; retrying in %ds",
-                           type(e).__name__, unreachable, POE_POLL_INTERVAL)
+                           type(e).__name__, unreachable, delay)
             if unreachable == UNREACHABLE_ALERT_AFTER:
                 logger.error(
                     "poe.pl.ua has been unreachable for %d polls (~%d min). If this "
@@ -564,10 +594,11 @@ async def poll_site() -> None:
                     "provider; the Telegram fallback keeps working meanwhile.",
                     unreachable, unreachable * POE_POLL_INTERVAL // 60)
         except Exception:
+            delay = POE_POLL_INTERVAL
             logger.exception("Failed to fetch schedule from poe.pl.ua, retrying in %ds",
-                             POE_POLL_INTERVAL)
+                             delay)
 
-        await asyncio.sleep(POE_POLL_INTERVAL)
+        await asyncio.sleep(delay)
 
 
 def _queue_emoji(queue: str) -> str:

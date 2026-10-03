@@ -13,7 +13,9 @@ Reads schedules straight from [poe.pl.ua](https://www.poe.pl.ua/) — the provid
 ## Features
 
 ### Straight from the provider
-The bot polls the same endpoint the provider's own page calls to draw its grid, every 5 minutes, and broadcasts a schedule as soon as it is published. Nobody has to repost a screenshot first.
+The bot polls the same endpoint the provider's own page calls to draw its grid and broadcasts a schedule as soon as it is published. Nobody has to repost a screenshot first.
+
+How closely it watches follows the data: every 5 minutes while grids are being published, every 30 when the provider keeps answering "nothing planned", and always every 5 during the evening window when tomorrow's grid appears. A quiet month costs a fiftieth of the requests and the first grid of a season is still caught within minutes.
 
 "Станом на …" is the provider's own last-updated stamp, so it is the moment the schedule actually appeared or changed. That matters most for schedules published the evening before — a stamp of `09.04.2026 20:11` on a schedule for the 10th is something a reposter's message time could never tell you.
 
@@ -160,7 +162,9 @@ Copy `.env.example` to `.env`. Beyond the Telegram credentials:
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `POE_SOURCE_ENABLED` | `1` | Poll poe.pl.ua — the primary source |
-| `POE_POLL_INTERVAL` | `300` | Seconds between polls |
+| `POE_POLL_INTERVAL` | `300` | Seconds between polls while schedules are running |
+| `POE_QUIET_INTERVAL` | `1800` | Seconds between polls while nothing is planned |
+| `POE_PROXY` | — | Proxy for provider requests only; needed where the provider blocks the host |
 | `TELEGRAM_SOURCE_ENABLED` | `1` | Keep the screenshot-OCR fallback running |
 
 The Dockerfile installs everything the bot needs. Running it outside Docker also needs **fonts-liberation** (the schedule picture is set in Liberation Sans) and **tesseract-ocr-ukr** for the screenshot fallback; without the fonts the bot still works, it just sends schedules as text.
