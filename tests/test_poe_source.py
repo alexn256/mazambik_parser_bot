@@ -18,6 +18,11 @@ OFF = "light_2"
 SWITCH = "light_3"
 
 
+def _slot_time_index(time_str: str) -> int:
+    """"HH:MM" back to a half-hour slot index; "00:00" as an end means 48."""
+    return int(time_str[:2]) * 2 + (time_str[3:] == "30")
+
+
 def fixture(name: str) -> str:
     with open(os.path.join(FIXTURES, name), encoding="utf-8") as f:
         return f.read()
@@ -96,6 +101,28 @@ class TestParseOutageDay:
 
     def test_has_outages(self, outage_day):
         assert has_outages(outage_day["schedule"])
+
+    def test_painted_cells_are_kept_alongside_the_ranges(self, outage_day):
+        # Ranges merge the two off-colours; the picture needs them apart
+        cells = outage_day["cells"]
+        assert len(cells) == 12
+        assert all(len(row) == 48 for row in cells.values())
+        assert set("".join(cells.values())) <= {"1", "2", "3"}
+
+    def test_cells_agree_with_the_ranges_they_were_collapsed_from(self, outage_day):
+        row = outage_day["cells"]["1.1"]
+        assert row[:6] == "222231"           # 00:00–02:30, switching half-hour last
+        off = {i for i, c in enumerate(row) if c != "1"}
+        from_ranges = {
+            i
+            for r in outage_day["schedule"]["1.1"]
+            for i in range(_slot_time_index(r["start"]), _slot_time_index(r["end"]) or 48)
+        }
+        assert off == from_ranges
+
+    def test_a_quiet_day_has_no_cells(self):
+        day = parse_response(fixture("gpv_no_outages.html"))[0]
+        assert day["cells"] == {}
 
 
 class TestParseQuietDays:

@@ -427,6 +427,23 @@ class TestSchedulePicture:
         asyncio.run(main.process_parsed(self._day(self.EMPTY)))
         assert photos == []
 
+    def test_painted_cells_survive_into_the_stored_day(self, pipeline, photos):
+        # A picture drawn later must put the switching half-hours where the
+        # provider put them, so its cells have to outlive the broadcast
+        painted = {f"{q}.{s}": "1" * 48 for q in range(1, 7) for s in (1, 2)}
+        painted["1.1"] = "1" * 16 + "2223" + "1" * 28
+        asyncio.run(main.process_parsed({**self._day(self.GRID), "cells": painted}))
+
+        entry = main.load_state(main.STATE_FILE_PATH)[self.DATE]
+        assert entry["cells"] == painted
+
+        # Asked for the stored day, the cache recognises the same drawing and
+        # names the file id Telegram already gave it — the cells came back whole
+        assert photos[0][1].startswith(b"\x89PNG")
+        photos.clear()
+        asyncio.run(main._send_day_schedule(1, self.DATE, entry, "сьогодні"))
+        assert photos[0][1] == "file-id-1"
+
     def test_a_failed_drawing_does_not_stop_the_message(self, pipeline, photos, monkeypatch):
         monkeypatch.setattr(main, "render_png", lambda *a, **k: None)
         asyncio.run(main.process_parsed(self._day(self.GRID)))
@@ -446,7 +463,7 @@ class TestPictureCache:
     def renders(self, monkeypatch, photos):
         calls = []
 
-        def counting_render(schedule, stamp, intro=None):
+        def counting_render(schedule, stamp, intro=None, cells=None):
             calls.append(stamp)
             return b"\x89PNG-fake"
 
@@ -467,6 +484,12 @@ class TestPictureCache:
         amended = {**self.DAY, "schedule": {**self.DAY["schedule"],
                                             "1.1": [{"start": "08:00", "end": "11:00"}]}}
         main._grid_picture(amended)
+        assert len(renders) == 2
+
+    def test_repainted_cells_alone_redraw(self, renders):
+        # Same ranges, a switching half-hour moved: a different picture
+        main._grid_picture({**self.DAY, "cells": {"1.1": "1" * 16 + "2223" + "1" * 28}})
+        main._grid_picture({**self.DAY, "cells": {"1.1": "1" * 16 + "3222" + "1" * 28}})
         assert len(renders) == 2
 
     def test_a_new_stamp_alone_redraws(self, renders):

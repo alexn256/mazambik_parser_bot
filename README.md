@@ -26,7 +26,9 @@ A Telegram channel stays wired up as a fallback: if the site is unreachable but 
 ### The provider's table, as a picture
 Every schedule arrives as the grid subscribers are used to seeing on the site — all six queues, half-hour cells, the "обсяг черг" preamble and the provider's timestamp — with the text below it as the photo's caption, so it is one message rather than two. A schedule too long for Telegram's 1024-character caption follows as its own message instead.
 
-It is drawn from the parsed schedule with Pillow, not captured from the page: no headless browser in the image, and it works for schedules recognised from a screenshot too. Colours, geometry and type were measured off real screenshots of the site, so it reads as one rather than as a chart of our own.
+It is drawn with Pillow, not captured from the page: no headless browser in the image, and it works for schedules recognised from a screenshot too. Colours, geometry and type were measured off real screenshots of the site, so it reads as one rather than as a chart of our own.
+
+Every cell is coloured as the provider coloured it. The published ranges merge the off and switching halves into one interval, so a picture rebuilt from them alone has to guess where the yellow sits — and guesses wrong whenever a block crosses midnight. The provider's own cells are parsed alongside the ranges and used verbatim, which makes the grid match the site cell for cell. Schedules recognised from a screenshot carry no cells, and fall back to the reconstruction.
 
 If it cannot be drawn — missing fonts, anything unexpected — the schedule still goes out as text. Quiet days and cancellations carry no picture: there is no grid to draw.
 

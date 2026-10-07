@@ -218,8 +218,9 @@ PUBLICATION_WINDOW = (18, 23)
 _broadcast_lock = asyncio.Lock()
 
 
-def _picture_key(schedule: dict, stamp: str, intro) -> str:
-    payload = json.dumps([schedule, stamp, intro], sort_keys=True, ensure_ascii=False)
+def _picture_key(schedule: dict, stamp: str, intro, cells) -> str:
+    payload = json.dumps([schedule, stamp, intro, cells],
+                         sort_keys=True, ensure_ascii=False)
     return hashlib.sha1(payload.encode("utf-8")).hexdigest()
 
 
@@ -235,14 +236,15 @@ def _grid_picture(parsed: dict) -> dict | None:
 
     stamp = format_stamp_ua(parsed.get("updated_at") or parsed.get("date"))
     intro = parsed.get("intro") or []
-    key = _picture_key(parsed["schedule"], stamp, intro)
+    cells = parsed.get("cells") or {}
+    key = _picture_key(parsed["schedule"], stamp, intro, cells)
 
     cached = _pictures.get(key)
     if cached:
         _pictures.move_to_end(key)   # today's grid stays put while amendments churn
         return cached
 
-    png = render_png(parsed["schedule"], stamp, intro)
+    png = render_png(parsed["schedule"], stamp, intro, cells)
     if png is None:
         return None
 
@@ -316,6 +318,7 @@ async def _send_day_schedule(chat_id: int, date: str, entry: dict, when: str) ->
         "timestamp": entry.get("last_timestamp"),
         "updated_at": entry.get("updated_at"),
         "intro": entry.get("intro"),
+        "cells": entry.get("cells"),
         "schedule": entry["schedule"],
     }
 

@@ -115,8 +115,14 @@ def _cells_to_ranges(cells: list[str]) -> list[dict]:
     return ranges
 
 
-def _parse_table(block: str) -> dict[str, list[dict]] | None:
-    """Parse the outage grid out of a day block. Returns None if it has no grid."""
+def _parse_table(block: str) -> tuple[dict[str, list[dict]], dict[str, str]] | None:
+    """Parse the outage grid out of a day block. Returns None if it has no grid.
+
+    Returns both the collapsed ranges the bot works with and the raw cells as
+    the provider painted them — "1" on, "2" off, "3" switching. Ranges lose the
+    distinction between the two off-colours, and a picture drawn from ranges
+    alone has to guess where the switching half-hour sits.
+    """
     tbody = TBODY_RE.search(block)
     if not tbody:
         return None
@@ -125,7 +131,7 @@ def _parse_table(block: str) -> dict[str, list[dict]] | None:
     if len(rows) != ROWS:
         raise PoeParseError(f"expected {ROWS} queue rows, got {len(rows)}")
 
-    schedule = {}
+    schedule, raw = {}, {}
     for index, row in enumerate(rows):
         cells = CELL_RE.findall(row)
         if len(cells) != CELLS_PER_ROW:
@@ -133,9 +139,11 @@ def _parse_table(block: str) -> dict[str, list[dict]] | None:
                 f"row {index} ({_queue_label(index)}): "
                 f"expected {CELLS_PER_ROW} cells, got {len(cells)}"
             )
-        schedule[_queue_label(index)] = _cells_to_ranges(cells)
+        label = _queue_label(index)
+        schedule[label] = _cells_to_ranges(cells)
+        raw[label] = "".join(c[-1] for c in cells)
 
-    return schedule
+    return schedule, raw
 
 
 def _parse_stamp(block: str) -> str | None:
@@ -185,7 +193,8 @@ def _parse_day(block: str) -> dict:
     date = f"{int(day):02d}.{UA_MONTHS[month]:02d}.{year}"
 
     updated_at = _parse_stamp(block)
-    schedule = _parse_table(block)
+    parsed = _parse_table(block)
+    schedule, raw_cells = parsed if parsed else (None, {})
 
     return {
         "date": date,
@@ -193,6 +202,7 @@ def _parse_day(block: str) -> dict:
         "timestamp": updated_at.split(" ")[1] if updated_at else None,
         "updated_at": updated_at,
         "intro": _parse_intro(block) if schedule is not None else [],
+        "cells": raw_cells,
         "schedule": schedule if schedule is not None else {
             _queue_label(i): [] for i in range(ROWS)
         },

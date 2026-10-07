@@ -78,6 +78,10 @@ def build_state(state: dict, parsed: dict) -> dict:
         # The provider's "обсяг черг" preamble, kept so the picture drawn for an
         # on-demand request carries the same heading as the one broadcast.
         "intro": parsed.get("intro") or [],
+        # The grid exactly as the provider painted it, kept so a picture drawn
+        # later puts the switching half-hours where the provider put them
+        # instead of inferring them from the collapsed ranges.
+        "cells": parsed.get("cells") or {},
         "schedule": parsed["schedule"],
         "update_count": update_count,
     }

@@ -83,24 +83,43 @@ def _slot(time_str: str) -> int:
     return int(time_str[:2]) * 2 + (time_str[3:] == "30")
 
 
-def _row_cells(ranges: list[dict]) -> list[tuple]:
+# The provider's own cell classes: light_1 on, light_2 off, light_3 switching
+PROVIDER_COLOURS = {"1": ON, "2": OFF, "3": SW}
+
+
+def _row_cells(ranges: list[dict], painted: str | None = None) -> list[tuple]:
     """One queue row as 48 half-hour colours.
 
-    The last half-hour of a range is the provider's switching window, which it
-    paints yellow — the same convention poe_source reads back.
+    When the provider's own cells are available they are used verbatim — no
+    reconstruction can beat the source. Schedules recognised from a screenshot
+    carry only ranges, so those are rebuilt: the last half-hour of a range is
+    the switching window the provider paints yellow.
+
+    A range running to midnight is the exception. Its block continues into the
+    next day, so the switching half-hour falls on the other side of midnight
+    and today's last cell stays off — which is exactly what the provider draws.
     """
+    if painted and len(painted) == 48:
+        return [PROVIDER_COLOURS[c] for c in painted]
+
     cells = [ON] * 48
     for r in ranges:
         start = _slot(r["start"])
         end = _slot(r["end"]) or 48
         for i in range(start, end):
             cells[i] = OFF
-        cells[end - 1] = SW
+        if end < 48:
+            cells[end - 1] = SW
     return cells
 
 
-def render(schedule: dict, stamp: str, intro: list | None = None) -> Image.Image:
-    """Draw the grid. `intro` is the provider's preamble as lines of runs."""
+def render(schedule: dict, stamp: str, intro: list | None = None,
+           cells: dict | None = None) -> Image.Image:
+    """Draw the grid.
+
+    `intro` is the provider's preamble as lines of runs. `cells` are the
+    provider's painted half-hours per queue, used verbatim when present.
+    """
     top = _table_top(intro)
     grid_y = top + 114
     grid_b = grid_y + 12 * PITCH_Y
@@ -151,7 +170,9 @@ def render(schedule: dict, stamp: str, intro: list | None = None) -> Image.Image
         d.rectangle([LABEL_R, y0 - 1, SUB_R, y1 - 1], fill=WHITE, outline=INNER)
         _centre(d, LABEL_R, SUB_R, (y0 + y1) / 2 - 1, str(sub), bold)
 
-        for i, colour in enumerate(_row_cells(schedule.get(f"{queue}.{sub}", []))):
+        label = f"{queue}.{sub}"
+        row = _row_cells(schedule.get(label, []), (cells or {}).get(label))
+        for i, colour in enumerate(row):
             x = GRID_X + i * PITCH_X
             d.rectangle([x, y0, x + CELL_W - 1, y0 + CELL_H - 1], fill=colour)
 
@@ -164,7 +185,8 @@ def render(schedule: dict, stamp: str, intro: list | None = None) -> Image.Image
     return img
 
 
-def render_png(schedule: dict, stamp: str, intro: list | None = None) -> bytes | None:
+def render_png(schedule: dict, stamp: str, intro: list | None = None,
+               cells: dict | None = None) -> bytes | None:
     """Grid as PNG bytes, or None if it could not be drawn.
 
     Never raises: a schedule is worth sending as plain text even when the
@@ -172,7 +194,7 @@ def render_png(schedule: dict, stamp: str, intro: list | None = None) -> bytes |
     """
     try:
         buf = io.BytesIO()
-        render(schedule, stamp, intro).save(buf, format="PNG", optimize=True)
+        render(schedule, stamp, intro, cells).save(buf, format="PNG", optimize=True)
         return buf.getvalue()
     except FontsMissing:
         logger.error("Schedule image skipped: no Liberation fonts installed")

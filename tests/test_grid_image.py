@@ -37,10 +37,37 @@ class TestCellColours:
         assert cell_colour(img, 0, 20) == ON
         assert cell_colour(img, 5, 16) == ON     # another queue, same hour
 
-    def test_range_ending_at_midnight_fills_the_last_slot(self):
+    def test_range_ending_at_midnight_stays_off_to_the_last_slot(self):
+        # The block continues past midnight, so its switching half-hour falls on
+        # the other side of it — the provider paints today's last cell red.
         img = render({**EMPTY, "2.1": [{"start": "23:00", "end": "00:00"}]}, "x")
         assert cell_colour(img, 2, 46) == OFF
-        assert cell_colour(img, 2, 47) == SW
+        assert cell_colour(img, 2, 47) == OFF
+
+
+class TestPaintedCells:
+    """The provider's own cells beat anything reconstructed from ranges."""
+
+    def test_painted_cells_are_used_verbatim(self):
+        painted = {"1.1": "1" * 16 + "2223" + "1" * 28}
+        img = render(ONE_OUTAGE, "x", cells=painted)
+        assert cell_colour(img, 0, 16) == OFF
+        assert cell_colour(img, 0, 18) == OFF    # ranges would have guessed green here
+        assert cell_colour(img, 0, 19) == SW
+
+    def test_switching_cell_may_sit_at_the_start_of_a_block(self):
+        # 6.2 on the real site: the block opened before midnight, so the first
+        # half-hour of today is the switching window, not the last of the range
+        painted = {"1.1": "32" + "1" * 46}
+        img = render({**EMPTY, "1.1": [{"start": "00:00", "end": "01:00"}]},
+                     "x", cells=painted)
+        assert cell_colour(img, 0, 0) == SW
+        assert cell_colour(img, 0, 1) == OFF
+
+    def test_a_malformed_row_falls_back_to_the_ranges(self):
+        img = render(ONE_OUTAGE, "x", cells={"1.1": "123"})
+        assert cell_colour(img, 0, 16) == OFF
+        assert cell_colour(img, 0, 19) == SW
 
 
 class TestLayout:
@@ -79,9 +106,21 @@ class TestRenderPng:
     def test_real_schedule_renders(self):
         with open(os.path.join(FIXTURES, "gpv_outage_day.html"), encoding="utf-8") as f:
             day = parse_response(f.read())[0]
-        png = render_png(day["schedule"], day["updated_at"], day["intro"])
+        png = render_png(day["schedule"], day["updated_at"], day["intro"],
+                         day["cells"])
         img = Image.open(io.BytesIO(png))
         top = grid_image._table_top(day["intro"])
         # 1.1 is off 00:00–02:30, so slot 0 is red and slot 4 is the switching cell
         assert cell_colour(img, 0, 0, top) == OFF
         assert cell_colour(img, 0, 4, top) == SW
+
+    def test_the_real_grid_matches_the_provider_cell_for_cell(self):
+        with open(os.path.join(FIXTURES, "gpv_outage_day.html"), encoding="utf-8") as f:
+            day = parse_response(f.read())[0]
+        img = render(day["schedule"], day["updated_at"], day["intro"], day["cells"])
+        top = grid_image._table_top(day["intro"])
+        for row in range(12):
+            label = f"{row // 2 + 1}.{row % 2 + 1}"
+            for slot, painted in enumerate(day["cells"][label]):
+                assert cell_colour(img, row, slot, top) == \
+                    grid_image.PROVIDER_COLOURS[painted], f"{label} slot {slot}"
