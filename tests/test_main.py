@@ -9,7 +9,7 @@ import sender
 from main import (
     _find_next_range,
     _format_duration,
-    _refresh_stamp,
+    _refresh_unchanged_day,
     _restoration_hint,
     _time_to_minutes,
 )
@@ -72,8 +72,8 @@ class TestFindNextRange:
         assert result is None
 
 
-class TestRefreshStamp:
-    """A re-publication that changed nothing still moves the provider's stamp."""
+class TestRefreshUnchangedDay:
+    """A re-publication that moved no range can still move the stamp or a cell."""
 
     DATE = "10.04.2026"
 
@@ -95,7 +95,7 @@ class TestRefreshStamp:
 
     def test_newer_stamp_is_written(self, saved):
         state = self._state()
-        _refresh_stamp(state, {
+        _refresh_unchanged_day(state, {
             "date": self.DATE,
             "timestamp": "08:05",
             "updated_at": "11.04.2026 08:05",
@@ -107,7 +107,7 @@ class TestRefreshStamp:
 
     def test_update_count_is_untouched(self, saved):
         state = self._state()
-        _refresh_stamp(state, {
+        _refresh_unchanged_day(state, {
             "date": self.DATE,
             "timestamp": "08:05",
             "updated_at": "11.04.2026 08:05",
@@ -117,7 +117,7 @@ class TestRefreshStamp:
 
     def test_identical_stamp_writes_nothing(self, saved):
         state = self._state()
-        _refresh_stamp(state, {
+        _refresh_unchanged_day(state, {
             "date": self.DATE,
             "timestamp": "22:18",
             "updated_at": "10.04.2026 22:18",
@@ -126,7 +126,7 @@ class TestRefreshStamp:
 
     def test_screenshot_without_a_stamp_never_clobbers_the_site_one(self, saved):
         state = self._state()
-        _refresh_stamp(state, {
+        _refresh_unchanged_day(state, {
             "date": self.DATE,
             "timestamp": "09:41",
             "source": "telegram",
@@ -137,7 +137,33 @@ class TestRefreshStamp:
 
     def test_unknown_date_is_ignored(self, saved):
         state = self._state()
-        _refresh_stamp(state, {"date": "01.01.2027", "updated_at": "01.01.2027 10:00"})
+        _refresh_unchanged_day(state, {"date": "01.01.2027", "updated_at": "01.01.2027 10:00"})
+        assert saved == []
+
+    def test_repainted_cells_are_written_on_their_own(self, saved):
+        # A switching half-hour can move inside a block without moving the
+        # range it belongs to — same text, different picture
+        state = self._state()
+        state[self.DATE]["cells"] = {"1.1": "23" + "1" * 46}
+        _refresh_unchanged_day(state, {
+            "date": self.DATE,
+            "updated_at": "10.04.2026 22:18",      # unchanged
+            "cells": {"1.1": "32" + "1" * 46},
+        })
+        assert state[self.DATE]["cells"] == {"1.1": "32" + "1" * 46}
+        assert len(saved) == 1
+
+    def test_a_day_recorded_without_cells_is_backfilled(self, saved):
+        state = self._state()
+        assert "cells" not in state[self.DATE]
+        _refresh_unchanged_day(state, {"date": self.DATE, "cells": {"1.1": "2" * 48}})
+        assert state[self.DATE]["cells"] == {"1.1": "2" * 48}
+
+    def test_a_screenshot_never_erases_the_painted_cells(self, saved):
+        state = self._state()
+        state[self.DATE]["cells"] = {"1.1": "23" + "1" * 46}
+        _refresh_unchanged_day(state, {"date": self.DATE, "source": "telegram"})
+        assert state[self.DATE]["cells"] == {"1.1": "23" + "1" * 46}
         assert saved == []
 
 

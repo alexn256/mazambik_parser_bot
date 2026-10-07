@@ -416,7 +416,7 @@ async def _process_parsed(parsed: dict) -> bool:
         stored = state[parsed_date]["schedule"]
         diff = compute_diff(stored, parsed["schedule"])
         if not diff:
-            _refresh_stamp(state, parsed)
+            _refresh_unchanged_day(state, parsed)
             logger.info("No changes detected, skipping notification")
             return False
         if has_outages(stored) and not has_outages(parsed["schedule"]):
@@ -468,28 +468,48 @@ async def _process_parsed(parsed: dict) -> bool:
     return True
 
 
-def _refresh_stamp(state: dict, parsed: dict) -> None:
-    """Record a re-publication that left the grid untouched.
+def _refresh_unchanged_day(state: dict, parsed: dict) -> None:
+    """Record a re-publication that left the outage ranges untouched.
 
-    The provider can restamp a schedule without changing a single cell. There is
-    nothing to announce, but "станом на" should still tell the truth, so the
-    stamp is written without touching update_count — that counter tracks
-    announced changes, and no change was announced.
+    Nothing is announced — the diff is computed on ranges and there is none —
+    but two things can still have moved, and both matter to a schedule asked
+    for later:
 
-    A schedule recognised from a screenshot carries no provider stamp, so it
-    never overwrites one taken from the site.
+    The stamp. The provider can restamp a schedule without changing a cell;
+    "станом на" should still tell the truth. It is written without touching
+    update_count, which counts announced changes.
+
+    The painted cells. A switching half-hour can shift inside a block without
+    moving the range it belongs to, and that is a different picture. Writing
+    them also backfills days recorded before cells were parsed at all.
+
+    A schedule recognised from a screenshot carries neither, so it never
+    overwrites what was taken from the site.
     """
-    updated_at = parsed.get("updated_at")
     entry = state.get(parsed.get("date"))
-    if not entry or not updated_at or entry.get("updated_at") == updated_at:
+    if not entry:
         return
 
-    entry["updated_at"] = updated_at
-    entry["last_timestamp"] = parsed.get("timestamp")
-    entry["source"] = parsed.get("source")
+    updated_at = parsed.get("updated_at")
+    cells = parsed.get("cells") or {}
+    stamp_moved = bool(updated_at) and entry.get("updated_at") != updated_at
+    cells_moved = bool(cells) and entry.get("cells") != cells
+    if not stamp_moved and not cells_moved:
+        return
+
+    if stamp_moved:
+        entry["updated_at"] = updated_at
+        entry["last_timestamp"] = parsed.get("timestamp")
+        entry["source"] = parsed.get("source")
+    if cells_moved:
+        entry["cells"] = cells
+
     save_state(state, STATE_FILE_PATH)
-    logger.info("Stamp for %s refreshed to %s (schedule unchanged)",
-                parsed["date"], updated_at)
+    logger.info("%s refreshed: %s (ranges unchanged)", parsed["date"],
+                ", ".join(filter(None, [
+                    f"stamp -> {updated_at}" if stamp_moved else None,
+                    "repainted cells" if cells_moved else None,
+                ])))
 
 
 def _persist(state: dict, parsed: dict) -> None:
