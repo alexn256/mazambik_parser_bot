@@ -280,6 +280,52 @@ async def _send_schedule(chat_id: int, picture: dict | None, text: str) -> None:
         await send_message(BOT_TOKEN, chat_id, text)
 
 
+def _describe_user(who: dict | None) -> str:
+    """Telegram's `from` object as one readable line, or "" if it says nothing.
+
+    Everything in it is optional: a user may have no username, and a last name
+    is rarer still. Whatever is missing is simply left out.
+    """
+    if not who:
+        return ""
+    name = " ".join(filter(None, (who.get("first_name"), who.get("last_name")))).strip()
+    username = who.get("username")
+    if name and username:
+        return f"{name} (@{username})"
+    if username:
+        return f"@{username}"
+    return name
+
+
+async def _announce_membership(chat_id: int, queue: str | None,
+                               who: dict | None, *, joined: bool) -> None:
+    """Tell the admin that someone joined or left.
+
+    Both directions, because a count that only ever rises says nothing: people
+    leaving right after a particular broadcast is the one signal worth having.
+    A departure reports the queue the subscriber had, not the one they chose.
+
+    Called once the list has already been changed and the person answered, so a
+    failure here costs the admin a notice and the subscriber nothing — which is
+    why it swallows everything rather than propagating.
+
+    The admin's own coming and going is not news, and neither is a repeated
+    command: only a chat that actually entered or left the list gets announced.
+    """
+    if chat_id == USER_CHAT_ID:
+        return
+    try:
+        who_line = _describe_user(who)
+        await send_message(BOT_TOKEN, USER_CHAT_ID, "\n".join([
+            "🎉 Новий підписник" if joined else "👋 Відписався",
+            f"{who_line} · id {chat_id}" if who_line else f"id {chat_id}",
+            f"Черга: {queue or 'всі'}",
+            f"Всього: {len(load_subscribers(SUBSCRIBERS_FILE_PATH))}",
+        ]))
+    except Exception:
+        logger.exception("Failed to tell the admin about subscriber %d", chat_id)
+
+
 def _provider_stamp_line(parsed: dict) -> str | None:
     """Attribution line for answers that carry no grid of their own.
 
@@ -942,14 +988,19 @@ async def poll_commands() -> None:
                                     "✅ Ви підписались на графік відключень.\n"
                                     "З побажаннями та зауваженнями звертайтесь до @M_AHTS."
                                 )
+                                await _announce_membership(chat_id, None, cq.get("from"), joined=True)
                             else:
                                 await answer_callback(client, cq["id"], "ℹ️ Ви вже підписані.")
 
                         elif data == "unsubscribe":
+                            # read before removing — the queue is gone afterwards
+                            had = load_subscribers(SUBSCRIBERS_FILE_PATH).get(chat_id)
                             removed = remove_subscriber(chat_id, SUBSCRIBERS_FILE_PATH)
                             if removed:
                                 logger.info("Unsubscribed: %d", chat_id)
                                 await answer_callback(client, cq["id"], "✅ Ви відписались від графіку відключень.")
+                                await _announce_membership(chat_id, had, cq.get("from"),
+                                                           joined=False)
                             else:
                                 await answer_callback(client, cq["id"], "ℹ️ Ви не були підписані.")
 
@@ -984,13 +1035,15 @@ async def poll_commands() -> None:
                         elif data.startswith("set_queue_"):
                             queue_value = data[len("set_queue_"):]
                             queue = None if queue_value == "all" else queue_value
-                            set_subscriber_queue(chat_id, queue, SUBSCRIBERS_FILE_PATH)
+                            joined = set_subscriber_queue(chat_id, queue, SUBSCRIBERS_FILE_PATH)
                             if queue:
                                 logger.info("Queue set: %d -> %s", chat_id, queue)
                                 await answer_callback(client, cq["id"], f"✅ Ваша черга: {queue}")
                             else:
                                 logger.info("Queue cleared: %d", chat_id)
                                 await answer_callback(client, cq["id"], "✅ Отримуєте повний графік")
+                            if joined:
+                                await _announce_membership(chat_id, queue, cq.get("from"), joined=True)
 
                         elif data == "find_queue":
                             await answer_callback(client, cq["id"], "")
@@ -1027,11 +1080,13 @@ async def poll_commands() -> None:
                         elif data.startswith("fq_sub_"):
                             queue = data[len("fq_sub_"):]
                             # set_subscriber_queue also registers the subscriber
-                            set_subscriber_queue(chat_id, queue, SUBSCRIBERS_FILE_PATH)
+                            joined = set_subscriber_queue(chat_id, queue, SUBSCRIBERS_FILE_PATH)
                             logger.info("Queue set via find_queue: %d -> %s", chat_id, queue)
                             fq_state.pop(chat_id, None)
                             await answer_callback(client, cq["id"],
                                 f"✅ Готово! Отримуватимете сповіщення для черги {queue}")
+                            if joined:
+                                await _announce_membership(chat_id, queue, cq.get("from"), joined=True)
                         continue
 
                     # Handle text commands and admin photo uploads
@@ -1129,14 +1184,19 @@ async def poll_commands() -> None:
                                 "✅ Ви підписались на графік відключень.\n\n"
                                 "З побажаннями та зауваженнями щодо роботи бота звертайтесь до @M_AHTS."
                             )
+                            await _announce_membership(chat_id, None, message.get("from"), joined=True)
                         else:
                             await send_message(BOT_TOKEN, chat_id, "ℹ️ Ви вже підписані.")
 
                     elif text.startswith("/unsubscribe"):
+                        # read before removing — the queue is gone afterwards
+                        had = load_subscribers(SUBSCRIBERS_FILE_PATH).get(chat_id)
                         removed = remove_subscriber(chat_id, SUBSCRIBERS_FILE_PATH)
                         if removed:
                             logger.info("Unsubscribed: %d", chat_id)
                             await send_message(BOT_TOKEN, chat_id, "✅ Ви відписались від графіку відключень.")
+                            await _announce_membership(chat_id, had, message.get("from"),
+                                                       joined=False)
                         else:
                             await send_message(BOT_TOKEN, chat_id, "ℹ️ Ви не були підписані.")
 

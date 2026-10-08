@@ -360,6 +360,111 @@ class TestCancellation:
         assert pipeline == []
 
 
+class TestSetSubscriberQueue:
+    """Picking a queue is how most people subscribe, so it has to say so."""
+
+    @pytest.fixture
+    def path(self, tmp_path):
+        return str(tmp_path / "subs.json")
+
+    def test_an_unknown_chat_joins(self, path):
+        from subscribers import load_subscribers, set_subscriber_queue
+        assert set_subscriber_queue(42, "3.2", path) is True
+        assert load_subscribers(path) == {42: "3.2"}
+
+    def test_an_existing_subscriber_only_changes_queue(self, path):
+        from subscribers import add_subscriber, set_subscriber_queue
+        add_subscriber(42, path)
+        assert set_subscriber_queue(42, "3.2", path) is False
+
+    def test_switching_queues_is_not_joining_twice(self, path):
+        from subscribers import set_subscriber_queue
+        set_subscriber_queue(42, "3.2", path)
+        assert set_subscriber_queue(42, "1.1", path) is False
+
+
+class TestDescribeUser:
+    """Every field of Telegram's `from` object is optional."""
+
+    def test_name_and_username(self):
+        assert main._describe_user(
+            {"first_name": "Іван", "last_name": "Коваль", "username": "ivan"}
+        ) == "Іван Коваль (@ivan)"
+
+    def test_name_without_a_username(self):
+        assert main._describe_user({"first_name": "Іван"}) == "Іван"
+
+    def test_username_without_a_name(self):
+        assert main._describe_user({"username": "ivan"}) == "@ivan"
+
+    def test_nothing_known_says_nothing(self):
+        assert main._describe_user({}) == ""
+        assert main._describe_user(None) == ""
+
+
+class TestAnnounceMembership:
+    """The admin hears about everyone who joins or leaves — except themselves."""
+
+    ADMIN = 777
+    WHO = {"first_name": "Іван", "username": "ivan"}
+
+    @pytest.fixture
+    def admin(self, monkeypatch, tmp_path):
+        sent = []
+
+        async def fake_send(token, chat_id, text):
+            sent.append((chat_id, text))
+
+        monkeypatch.setattr(main, "USER_CHAT_ID", self.ADMIN)
+        monkeypatch.setattr(main, "send_message", fake_send)
+        monkeypatch.setattr(main, "SUBSCRIBERS_FILE_PATH", str(tmp_path / "subs.json"))
+        return sent
+
+    def test_tells_the_admin_who_joined_and_how_many_there_are(self, admin):
+        from subscribers import add_subscriber
+        for chat_id in (11, 22):
+            add_subscriber(chat_id, main.SUBSCRIBERS_FILE_PATH)
+
+        asyncio.run(main._announce_membership(22, "3.2", self.WHO, joined=True))
+
+        chat_id, text = admin[0]
+        assert chat_id == self.ADMIN
+        assert text.startswith("🎉 Новий підписник")
+        assert "Іван (@ivan) · id 22" in text
+        assert "Черга: 3.2" in text
+        assert "Всього: 2" in text
+
+    def test_a_departure_is_announced_too(self, admin):
+        # A count that only ever rises says nothing about a bad broadcast
+        from subscribers import add_subscriber
+        add_subscriber(11, main.SUBSCRIBERS_FILE_PATH)
+
+        asyncio.run(main._announce_membership(22, "3.2", self.WHO, joined=False))
+
+        text = admin[0][1]
+        assert text.startswith("👋 Відписався")
+        assert "Черга: 3.2" in text      # the queue they had, not one they chose
+        assert "Всього: 1" in text       # already counted without them
+
+    def test_no_queue_reads_as_all_of_them(self, admin):
+        asyncio.run(main._announce_membership(22, None, self.WHO, joined=True))
+        assert "Черга: всі" in admin[0][1]
+
+    def test_the_admin_coming_or_going_is_not_news(self, admin):
+        asyncio.run(main._announce_membership(self.ADMIN, None, self.WHO, joined=True))
+        asyncio.run(main._announce_membership(self.ADMIN, None, self.WHO, joined=False))
+        assert admin == []
+
+    def test_a_failed_notice_is_swallowed(self, admin, monkeypatch):
+        # The subscriber is already registered and answered by this point —
+        # the admin losing a notice must not turn into an error for them
+        async def boom(*a, **k):
+            raise RuntimeError("Telegram is down")
+
+        monkeypatch.setattr(main, "send_message", boom)
+        asyncio.run(main._announce_membership(22, "3.2", self.WHO, joined=True))
+
+
 class TestProviderStampLine:
     def test_omitted_when_there_is_no_stamp_to_cite(self):
         assert main._provider_stamp_line({"date": "15.09.2026"}) is None

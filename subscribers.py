@@ -57,8 +57,15 @@ def remove_subscriber(chat_id: int, path: str) -> bool:
     return True
 
 
-def set_subscriber_queue(chat_id: int, queue: str | None, path: str) -> None:
-    """Set queue filter for a subscriber. queue=None means all queues."""
+def set_subscriber_queue(chat_id: int, queue: str | None, path: str) -> bool:
+    """Set queue filter for a subscriber. queue=None means all queues.
+
+    Returns True when this call also registered a chat that was not subscribed
+    before. Picking a queue is how most people join — the address wizard ends
+    on it — so for them this is the moment they subscribed.
+    """
     subs = load_subscribers(path)
+    joined = chat_id not in subs
     subs[chat_id] = queue
     save_subscribers(subs, path)
+    return joined

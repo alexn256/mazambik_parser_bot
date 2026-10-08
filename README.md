@@ -105,6 +105,18 @@ Don't know your queue? The bot resolves it from your address: pick a city or typ
 
 Covers the whole Kremenchuk branch: Kremenchuk, Horishni Plavni, Kobeliaky, Hlobyne and ~200 villages (many resolve instantly — the entire settlement is in one queue).
 
+### The admin hears who comes and goes
+Both directions reach the admin through the bot itself — a count that only ever rises says nothing, and people leaving right after a particular broadcast is the one signal worth having:
+
+```
+🎉 Новий підписник            👋 Відписався
+Іван Коваль (@ivan) · id 1    Олена · id 2
+Черга: 3.2                    Черга: 1.1
+Всього: 42                    Всього: 41
+```
+
+Every way in is covered, including the address wizard, which subscribes people as a side effect of picking their queue. Only a chat that genuinely entered or left the list is announced, so a repeated `/subscribe` is silent — and the notice is sent after the person has already been answered, so failing to deliver it costs the admin a message and them nothing.
+
 ### Statistics
 View outage hours for the last 7 or 30 days for your queue.
 
