@@ -54,8 +54,7 @@ When a published schedule is amended, the bot shows the current picture *and* wh
 📋 Зміни:
 ⏰ Черга 1.2: розширили (було 13:30–15:30 → стало 13:30–16:00)
 
-⏱ Вимикають упродовж 30 хв після початку,
-   вмикають в останні 30 хв інтервалу.
+⏱ Вимикають упродовж 30 хв після початку, вмикають в останні 30 хв інтервалу.
 ```
 
 An amendment only reaches subscribers whose own queue moved. A first publication and a cancellation reach everyone:
@@ -147,8 +146,7 @@ Full schedule (no queue filter):
   6.1 · 00:00–00:30, 06:00–08:30, 12:00–14:00, 18:00–19:30
   6.2 · 00:00–01:00, 06:30–09:00, 12:30–14:30, 18:30–20:00
 
-⏱ Вимикають упродовж 30 хв після початку,
-   вмикають в останні 30 хв інтервалу.
+⏱ Вимикають упродовж 30 хв після початку, вмикають в останні 30 хв інтервалу.
 ```
 
 Personal schedule (queue selected) adds a day summary:
