@@ -31,6 +31,9 @@ def no_network(monkeypatch):
     # asyncio primitives bind to the loop that first awaits them, and each test
     # runs its own asyncio.run
     main._broadcast_lock = asyncio.Lock()
+    # Mutated by poll_site(); reset so one test's outage does not leave the
+    # Telegram fallback gate open (or shut) for the next.
+    main._poe_down = not main.POE_SOURCE_ENABLED
     monkeypatch.setattr(sender.httpx, "AsyncClient", NoNetwork)
     yield
     sender._client = None

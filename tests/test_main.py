@@ -821,6 +821,74 @@ class TestUnreachableProvider:
         logged = self._run_polls(monkeypatch, ValueError("something new"), ticks=1)
         assert [level for level, _ in logged] == ["exception"]
 
+    def test_the_fallback_stays_shut_before_the_alert_threshold(self, monkeypatch):
+        self._run_polls(monkeypatch, httpx.ConnectTimeout("timed out"),
+                        ticks=main.UNREACHABLE_ALERT_AFTER - 1)
+        assert main._poe_down is False
+
+    def test_the_fallback_opens_once_the_threshold_is_reached(self, monkeypatch):
+        self._run_polls(monkeypatch, httpx.ConnectTimeout("timed out"),
+                        ticks=main.UNREACHABLE_ALERT_AFTER)
+        assert main._poe_down is True
+
+    def test_a_broken_parser_opens_the_fallback_immediately(self, monkeypatch):
+        # Every poll will fail identically until a human fixes it — no reason
+        # to wait out a streak the way a transient network blip warrants
+        self._run_polls(monkeypatch, main.PoeParseError("layout changed"), ticks=1)
+        assert main._poe_down is True
+
+    def test_a_recovered_site_shuts_the_fallback_again(self, monkeypatch):
+        main._poe_down = True
+
+        async def healthy_fetch(*a, **k):
+            return []
+
+        async def stop(seconds):
+            raise asyncio.CancelledError
+
+        monkeypatch.setattr(main, "fetch_days", healthy_fetch)
+        monkeypatch.setattr(main.asyncio, "sleep", stop)
+
+        async def run():
+            with pytest.raises(asyncio.CancelledError):
+                await main.poll_site()
+
+        asyncio.run(run())
+        assert main._poe_down is False
+
+
+class TestTelegramFallbackGate:
+    """The OCR path only acts on its own once poe.pl.ua is genuinely down."""
+
+    @pytest.fixture
+    def parsing(self, monkeypatch, tmp_path, photos):
+        schedule = {f"{q}.{s}": [] for q in range(1, 7) for s in (1, 2)}
+        schedule["1.1"] = [{"start": "08:00", "end": "10:00"}]
+        monkeypatch.setattr(main, "parse_schedule_image", lambda path: {
+            "date": "10.04.2026", "timestamp": "10:00", "schedule": schedule,
+        })
+        monkeypatch.setattr(main, "STATE_FILE_PATH", str(tmp_path / "state.json"))
+        monkeypatch.setattr(main, "SUBSCRIBERS_FILE_PATH", str(tmp_path / "subs.json"))
+        monkeypatch.setattr(main, "HISTORY_FILE_PATH", str(tmp_path / "history.json"))
+        monkeypatch.setattr(main, "load_subscribers", lambda path: {42: None})
+
+        async def fake_send(token, chat_id, text):
+            return True
+
+        monkeypatch.setattr(main, "send_message", fake_send)
+
+    def test_a_reachable_site_blocks_the_automatic_image(self, parsing, monkeypatch):
+        monkeypatch.setattr(main, "_poe_down", False)
+        assert asyncio.run(main.process_image("whatever.jpg")) is False
+
+    def test_an_unreachable_site_lets_the_automatic_image_through(self, parsing, monkeypatch):
+        monkeypatch.setattr(main, "_poe_down", True)
+        assert asyncio.run(main.process_image("whatever.jpg")) is True
+
+    def test_a_forced_upload_goes_through_even_while_the_site_is_reachable(self, parsing, monkeypatch):
+        monkeypatch.setattr(main, "_poe_down", False)
+        assert asyncio.run(main.process_image("whatever.jpg", forced=True)) is True
+
 
 class TestAdaptivePolling:
     """The data decides how closely to watch; nobody flips a switch."""

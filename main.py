@@ -217,6 +217,14 @@ PUBLICATION_WINDOW = (18, 23)
 # the site poller and the Telegram fallback can never run it at the same time.
 _broadcast_lock = asyncio.Lock()
 
+# poe.pl.ua is the source of truth; the channel's own authors re-derive their
+# schedule from the same page independently of the bot, and can misread or
+# amend it. So the OCR fallback does not race the direct poll for whichever
+# answers first — it only gets to act once the direct source genuinely cannot:
+# unreachable past UNREACHABLE_ALERT_AFTER polls in a row, its markup no
+# longer parsing at all, or the direct source turned off outright.
+_poe_down = not POE_SOURCE_ENABLED
+
 
 def _picture_key(schedule: dict, stamp: str, intro, cells) -> str:
     payload = json.dumps([schedule, stamp, intro, cells],
@@ -414,8 +422,20 @@ async def send_tomorrow_schedule(chat_id: int) -> None:
     await _send_day_schedule(chat_id, tomorrow, entry, "завтра")
 
 
-async def process_image(image_path: str, date: str | None = None, timestamp: str | None = None) -> bool:
-    """Fallback source: OCR a schedule screenshot, then run the common pipeline."""
+async def process_image(image_path: str, date: str | None = None, timestamp: str | None = None,
+                        *, forced: bool = False) -> bool:
+    """Fallback source: OCR a schedule screenshot, then run the common pipeline.
+
+    Only acts on its own once poe.pl.ua is down — see `_poe_down`. `forced` is
+    the admin's own override (a photo sent to the bot directly) and always
+    goes through, since that is a deliberate instruction, not the automatic
+    channel watch racing the direct source.
+    """
+    if not forced and not _poe_down:
+        logger.info("Ignoring a schedule image — poe.pl.ua is reachable, "
+                    "the direct source takes priority")
+        return False
+
     logger.info("Processing image: %s", image_path)
 
     try:
@@ -625,6 +645,7 @@ async def poll_site() -> None:
     "not expected" notices instead of grids, so a quiet reply is a healthy
     reply, not a failure.
     """
+    global _poe_down
     logger.info("Polling poe.pl.ua: every %ds while schedules run, %ds when quiet",
                 POE_POLL_INTERVAL, POE_QUIET_INTERVAL)
     unreachable = 0
@@ -648,12 +669,18 @@ async def poll_site() -> None:
                     continue
                 await process_parsed(day)
             unreachable = 0
+            if _poe_down:
+                logger.info("poe.pl.ua reachable again, Telegram fallback stood down")
+            _poe_down = False
             delay = _next_poll_delay(days)
         except PoeParseError:
             # Shape changed on their side: louder than a network blip, because
-            # it means the parser needs a human, and the bot is now blind.
+            # it means the parser needs a human, and the bot is now blind. Every
+            # poll will fail the same way until someone fixes it, so the
+            # fallback is allowed to act immediately rather than wait out a streak.
             logger.exception("poe.pl.ua markup no longer matches the parser")
             unreachable = 0
+            _poe_down = True
             delay = POE_POLL_INTERVAL
         except httpx.TransportError as e:
             # Some hosts cannot reach the provider at all — it drops their
@@ -665,10 +692,11 @@ async def poll_site() -> None:
             logger.warning("poe.pl.ua unreachable (%s), attempt %d; retrying in %ds",
                            type(e).__name__, unreachable, delay)
             if unreachable == UNREACHABLE_ALERT_AFTER:
+                _poe_down = True
                 logger.error(
                     "poe.pl.ua has been unreachable for %d polls (~%d min). If this "
                     "host is blocked, set POE_PROXY or move the bot closer to the "
-                    "provider; the Telegram fallback keeps working meanwhile.",
+                    "provider; the Telegram fallback takes over meanwhile.",
                     unreachable, unreachable * POE_POLL_INTERVAL // 60)
         except Exception:
             delay = POE_POLL_INTERVAL
@@ -1136,7 +1164,9 @@ async def poll_commands() -> None:
                             else:
                                 forced_date = now.strftime("%d.%m.%Y")
                             try:
-                                changed = await process_image(tmp_path, date=forced_date, timestamp=now.strftime("%H:%M"))
+                                changed = await process_image(tmp_path, date=forced_date,
+                                                              timestamp=now.strftime("%H:%M"),
+                                                              forced=True)
                                 if changed:
                                     await send_message(BOT_TOKEN, chat_id, "✅ Графік оброблено.")
                                 else:

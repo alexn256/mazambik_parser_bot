@@ -21,7 +21,7 @@ How closely it watches follows the data: every 5 minutes while grids are being p
 
 Changes are detected by comparing the grid itself, not the stamp. A restamped but identical schedule wakes nobody; changed cells notify even if the stamp stands still.
 
-A Telegram channel stays wired up as a fallback: if the site is unreachable but a schedule screenshot is posted somewhere, the bot still recognizes it via OCR. Whichever source arrives first wins; the other produces no diff and is dropped, so nothing is announced twice. Either source can be turned off — see [Configuration](#configuration).
+A Telegram channel stays wired up as a fallback, recognising a posted schedule screenshot via OCR — but only once poe.pl.ua is actually down: unreachable for several polls in a row, its markup no longer parsing at all, or the direct source turned off outright. The channel's own authors watch and parse the same page independently of the bot, and can misread it or amend it later, so it never gets to race the direct source for whichever answers first. An admin can still force a specific photo through at any time, bypassing the check — that is a deliberate instruction, not the automatic fallback. Either source can be turned off — see [Configuration](#configuration).
 
 ### The provider's table, as a picture
 Every schedule arrives as the grid subscribers are used to seeing on the site — all six queues, half-hour cells, the "обсяг черг" preamble and the provider's timestamp — with the text below it as the photo's caption, so it is one message rather than two. A schedule too long for Telegram's 1024-character caption follows as its own message instead.
