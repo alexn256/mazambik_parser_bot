@@ -582,6 +582,46 @@ class TestSchedulePicture:
         assert "Графік відключень" in pipeline[0][1]
 
 
+class TestGridPictureStamp:
+    """The picture's stamp must agree with what the caption already says.
+
+    A schedule recognised from a screenshot carries no provider stamp, only a
+    bare clock time — the watermark's, or the moment it was processed. The
+    caption (formatter.format_stamp) already falls back to it; the picture
+    used to stop one level earlier and draw a bare date instead.
+    """
+
+    EMPTY = {f"{q}.{s}": [] for q in range(1, 7) for s in (1, 2)}
+    SCHEDULE = {**EMPTY, "1.1": [{"start": "08:00", "end": "10:00"}]}
+
+    @pytest.fixture
+    def stamps(self, monkeypatch, photos):
+        seen = []
+
+        def capturing_render(schedule, stamp, intro=None, cells=None):
+            seen.append(stamp)
+            return b"\x89PNG-fake"
+
+        monkeypatch.setattr(main, "render_png", capturing_render)
+        return seen
+
+    def test_provider_stamp_is_used_as_before(self, stamps):
+        main._grid_picture({"date": "08.10.2026", "updated_at": "08.10.2026 15:02",
+                            "schedule": self.SCHEDULE})
+        assert stamps[0] == "8 жовтня 2026 15:02"
+
+    def test_a_screenshot_without_a_provider_stamp_still_shows_the_time(self, stamps):
+        main._grid_picture({"date": "08.10.2026", "updated_at": None,
+                            "timestamp": "15:02", "source": "telegram",
+                            "schedule": self.SCHEDULE})
+        assert stamps[0] == "8 жовтня 2026 15:02"
+
+    def test_nothing_known_at_all_falls_back_to_the_bare_date(self, stamps):
+        main._grid_picture({"date": "08.10.2026", "updated_at": None,
+                            "timestamp": None, "schedule": self.SCHEDULE})
+        assert stamps[0] == "8 жовтня 2026"
+
+
 class TestPictureCache:
     """The same drawing is neither rendered twice nor uploaded twice."""
 

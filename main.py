@@ -234,7 +234,15 @@ def _grid_picture(parsed: dict) -> dict | None:
     if not has_outages(parsed.get("schedule") or {}):
         return None
 
-    stamp = format_stamp_ua(parsed.get("updated_at") or parsed.get("date"))
+    # A schedule recognised from a screenshot carries no provider stamp, only
+    # a bare clock time — the watermark's, or the moment it was processed if
+    # even that could not be read. format_stamp (the caption) already falls
+    # back to it; the picture must too, or the two disagree on what "станом
+    # на" the subscriber just read actually means.
+    updated_at = parsed.get("updated_at")
+    if not updated_at and parsed.get("timestamp"):
+        updated_at = f"{parsed.get('date')} {parsed['timestamp']}"
+    stamp = format_stamp_ua(updated_at or parsed.get("date"))
     intro = parsed.get("intro") or []
     cells = parsed.get("cells") or {}
     key = _picture_key(parsed["schedule"], stamp, intro, cells)
