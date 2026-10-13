@@ -31,8 +31,15 @@ def _total_outage_minutes(ranges: list[dict]) -> int:
     return total
 
 
-def _progress_bar(minutes: int) -> str:
-    filled = min(round(minutes / BAR_MAX_MINUTES * BAR_BLOCKS), BAR_BLOCKS)
+def _progress_bar(minutes: int, total_minutes: int = BAR_MAX_MINUTES) -> str:
+    """Proportion-of-day gauge: red blocks are outage, green are power.
+
+    `total_minutes` is the full day by default. A caller showing only what is
+    left of today (the past already trimmed out) passes what remains of it
+    instead — otherwise an outage eating the rest of the day would still only
+    fill a sliver of a bar scaled to all 24 hours.
+    """
+    filled = min(round(minutes / total_minutes * BAR_BLOCKS), BAR_BLOCKS) if total_minutes else BAR_BLOCKS
     return "🟥" * filled + "🟩" * (BAR_BLOCKS - filled)
 
 

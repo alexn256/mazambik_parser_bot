@@ -1,4 +1,8 @@
+from datetime import datetime, timedelta, timezone
+
 from stats import _progress_bar, _total_outage_minutes
+
+UKRAINE_TZ = timezone(timedelta(hours=3))
 
 QUEUE_EMOJI = {
     "1": "\U0001f7e1",  # 🟡
@@ -27,6 +31,27 @@ CHANGE_EMOJI = {
     "no_outages": "❌",    # ❌
     "outages_appeared": "⚠️",  # ⚠️
 }
+
+
+def _end_to_minutes(t: str) -> int:
+    """Range END as minutes: '00:00' means midnight (1440), not day start."""
+    h, m = map(int, t.split(":"))
+    minutes = h * 60 + m
+    return 24 * 60 if minutes == 0 else minutes
+
+
+def _drop_finished_ranges(ranges: list[dict], date: str, now: datetime) -> list[dict]:
+    """Remove ranges that fully ended before `now`.
+
+    A reader opening an update at 15:30 lived through whatever finished at
+    13:00 — repeating it tells them nothing, only the ongoing and upcoming
+    outages do. Only today can have a past at all; any other date (tomorrow's
+    grid, published the evening before) passes through untouched.
+    """
+    if date != now.strftime("%d.%m.%Y"):
+        return ranges
+    now_minutes = now.hour * 60 + now.minute
+    return [r for r in ranges if _end_to_minutes(r["end"]) > now_minutes]
 
 
 def _fmt_range(r: dict) -> str:
@@ -74,6 +99,7 @@ def format_schedule(
     diff: list[dict] | None,
     is_first: bool,
     queue_filter: str | None = None,
+    now: datetime | None = None,
 ) -> str:
     lines = []
 
@@ -88,6 +114,16 @@ def format_schedule(
     lines.append("")
 
     schedule = parsed["schedule"]
+    # A day's remaining light-hours are counted against what is left of it, not
+    # the full 24 — otherwise trimming the past out of the ranges below would
+    # leave the "зі світлом" total still crediting hours already lived through.
+    window_minutes = 24 * 60
+    if parsed.get("date"):
+        now = now or datetime.now(UKRAINE_TZ)
+        if parsed["date"] == now.strftime("%d.%m.%Y"):
+            window_minutes -= now.hour * 60 + now.minute
+        schedule = {label: _drop_finished_ranges(ranges, parsed["date"], now)
+                   for label, ranges in schedule.items()}
 
     if queue_filter:
         q_num = queue_filter.split(".")[0]
@@ -98,8 +134,8 @@ def format_schedule(
         lines.append(f"  {queue_filter} · {_fmt_ranges(ranges)}")
 
         minutes_off = _total_outage_minutes(ranges)
-        minutes_on = 24 * 60 - minutes_off
-        bar = _progress_bar(minutes_off)
+        minutes_on = window_minutes - minutes_off
+        bar = _progress_bar(minutes_off, window_minutes)
         lines.append(f"\n{bar}\n")
         lines.append(f"🕯️ {minutes_off / 60:.1f} год без світла")
         lines.append(f"💡 {minutes_on / 60:.1f} год зі світлом")

@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 
 import pytest
 
@@ -63,3 +64,70 @@ class TestSwitchingNote:
         diff = [{"queue": "1.1", "type": "added", "detail": "Черга 1.1: додали 22:00–23:30"}]
         text = format_schedule(outage_day, diff=diff, is_first=False, queue_filter="1.1")
         assert text.index("Зміни:") < text.index(SWITCHING_NOTE)
+
+
+class TestPastRangesAreTrimmed:
+    """A reader at 15:30 lived through whatever already finished — repeating
+    it in an update tells them nothing, only what is ongoing or upcoming does.
+
+    1.1 on the fixture day (10.04.2026): 00:00–02:30, 07:00–09:30, 13:00–15:00,
+    19:00–20:30.
+    """
+
+    def _at(self, hour, minute, date=10):
+        return datetime(2026, 4, date, hour, minute)
+
+    def test_finished_ranges_vanish_from_the_full_schedule(self, outage_day):
+        text = format_schedule(outage_day, diff=None, is_first=False,
+                               now=self._at(15, 30))
+        assert "00:00–02:30" not in text
+        assert "07:00–09:30" not in text
+        assert "13:00–15:00" not in text
+        assert "19:00–20:30" in text        # still ahead
+
+    def test_an_ongoing_range_is_kept_not_just_future_ones(self, outage_day):
+        # 14:00 sits inside 13:00-15:00 — it has not finished yet
+        text = format_schedule(outage_day, diff=None, is_first=False,
+                               now=self._at(14, 0))
+        assert "13:00–15:00" in text
+        assert "07:00–09:30" not in text
+
+    def test_personal_view_drops_the_same_way(self, outage_day):
+        text = format_schedule(outage_day, diff=None, is_first=False,
+                               queue_filter="1.1", now=self._at(15, 30))
+        assert "00:00–02:30" not in text
+        assert "19:00–20:30" in text
+
+    def test_hour_totals_count_only_what_is_left_of_the_day(self, outage_day):
+        # At 15:30, 8.5h remain until midnight; only 19:00-20:30 (1.5h) is
+        # still outage, so "з світлом" must read against those 8.5h, not 24
+        text = format_schedule(outage_day, diff=None, is_first=False,
+                               queue_filter="1.1", now=self._at(15, 30))
+        assert "1.5 год без світла" in text
+        assert "7.0 год зі світлом" in text
+
+    def test_a_queue_with_nothing_left_today_reads_as_quiet(self, outage_day):
+        text = format_schedule(outage_day, diff=None, is_first=False,
+                               queue_filter="1.1", now=self._at(23, 0))
+        assert "немає відключень" in text
+        assert SWITCHING_NOTE not in text
+
+    def test_tomorrows_schedule_is_never_trimmed(self, outage_day):
+        # Published the evening before — none of it is "in the past" yet
+        tomorrow = {**outage_day, "date": "11.04.2026"}
+        text = format_schedule(tomorrow, diff=None, is_first=True,
+                               queue_filter="1.1", now=self._at(23, 0))
+        assert "00:00–02:30, 07:00–09:30, 13:00–15:00, 19:00–20:30" in text
+
+    def test_a_schedule_with_no_date_is_never_trimmed(self):
+        schedule = {**EMPTY_SCHEDULE, "1.1": [{"start": "08:00", "end": "10:00"}]}
+        text = format_schedule({"schedule": schedule}, diff=None, is_first=True,
+                               queue_filter="1.1", now=self._at(15, 30))
+        assert "08:00–10:00" in text
+
+    def test_without_an_explicit_now_it_uses_the_real_clock(self, outage_day):
+        # Just a smoke test that the default path does not crash and still
+        # returns a schedule — real-clock behaviour is exercised by every
+        # other call in the suite that omits `now` entirely.
+        text = format_schedule(outage_day, diff=None, is_first=False)
+        assert "Графік" in text or "Оновлення" in text

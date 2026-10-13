@@ -38,24 +38,26 @@ A rendered picture is cached, keyed by what it contains, and uploaded once per b
 Each subscriber selects their sub-queue (e.g. `3.2`). The bot sends only the information relevant to that queue — with a progress bar and total hours without power.
 
 ### Change tracking
-When a published schedule is amended, the bot shows the current picture *and* what moved, so a subscriber who opens the chat hours later does not have to reconstruct anything:
+When a published schedule is amended, the bot shows the current picture *and* what moved, so a subscriber who opens the chat hours later does not have to reconstruct anything. Only the ongoing and upcoming ranges are printed — an outage that already finished by the time the update went out is not repeated, and the hour totals and bar count against what is left of the day, not all 24 hours of it:
 
 ```
 🔄 Оновлення графіку на 10.04.2026 (станом на 08:30)
 
 🟡 1 черга
-  1.2 · 00:30–03:00, 07:30–10:00, 13:30–16:00, 19:30–20:30
+  1.2 · 07:30–10:00, 13:30–16:00, 19:30–20:30
 
-🟥🟥🟥🟥🟩🟩🟩🟩🟩🟩🟩🟩
+🟥🟥🟥🟥🟥🟩🟩🟩🟩🟩🟩🟩
 
-🕯️ 8.5 год без світла
-💡 15.5 год зі світлом
+🕯️ 6.0 год без світла
+💡 9.5 год зі світлом
 
 📋 Зміни:
 ⏰ Черга 1.2: розширили (було 13:30–15:30 → стало 13:30–16:00)
 
 ⏱ Вимикають упродовж 30 хв після початку, вмикають в останні 30 хв інтервалу.
 ```
+
+(1.2's day started with 00:30–03:00 too, but that was already over by 08:30 and is left out.)
 
 An amendment only reaches subscribers whose own queue moved. A first publication and a cancellation reach everyone:
 
