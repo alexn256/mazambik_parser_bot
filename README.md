@@ -38,7 +38,7 @@ A rendered picture is cached, keyed by what it contains, and uploaded once per b
 Each subscriber selects their sub-queue (e.g. `3.2`). The bot sends only the information relevant to that queue — with a progress bar and total hours without power.
 
 ### Change tracking
-When a published schedule is amended, the bot shows the current picture *and* what moved, so a subscriber who opens the chat hours later does not have to reconstruct anything. Only the ongoing and upcoming ranges are printed — an outage that already finished by the time the update went out is not repeated, and the hour totals and bar count against what is left of the day, not all 24 hours of it:
+When a published schedule is amended, the bot shows the current picture *and* what moved, so a subscriber who opens the chat hours later does not have to reconstruct anything. Only the ongoing and upcoming ranges are printed — an outage that already finished by the time the update went out is not repeated, and the hour totals and bar count against what is left of the day, not all 24 hours of it. Telegram's HTML has no text colour, so a lengthened or shortened interval is marked the same way the rest of the bot already marks outages — 🟥 for more time without power, 🟩 for less:
 
 ```
 🔄 Оновлення графіку на 10.04.2026 (станом на 08:30)
@@ -52,7 +52,7 @@ When a published schedule is amended, the bot shows the current picture *and* wh
 💡 9.5 год зі світлом
 
 📋 Зміни:
-⏰ Черга 1.2: розширили (було 13:30–15:30 → стало 13:30–16:00)
+⏰ Черга 1.2: розширили (було 13:30–15:30 → стало 🟥13:30–16:00)
 
 ⏱ Вимикають упродовж 30 хв після початку, вмикають в останні 30 хв інтервалу.
 ```

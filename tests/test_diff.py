@@ -30,11 +30,17 @@ class TestComputeDiff:
         diff = compute_diff({"1.1": [RANGE_A]}, {"1.1": [RANGE_A_SHORTER]})
         assert len(diff) == 1
         assert diff[0]["type"] == "shortened"
+        # the resulting interval reads as green — there is less outage now
+        assert "стало 🟩10:00–11:00" in diff[0]["detail"]
+        assert "було 🟩" not in diff[0]["detail"]
 
     def test_range_extended(self):
         diff = compute_diff({"1.1": [RANGE_A]}, {"1.1": [RANGE_A_EXTENDED]})
         assert len(diff) == 1
         assert diff[0]["type"] == "extended"
+        # the resulting interval reads as red — there is more outage now
+        assert "стало 🟥10:00–12:00" in diff[0]["detail"]
+        assert "було 🟥" not in diff[0]["detail"]
 
     def test_range_shifted(self):
         diff = compute_diff({"1.1": [RANGE_A]}, {"1.1": [RANGE_A_SHIFTED]})
@@ -49,6 +55,7 @@ class TestComputeDiff:
         )
         assert len(diff) == 1
         assert diff[0]["type"] == "shortened"
+        assert "стало 🟩23:00–23:30" in diff[0]["detail"]
 
     def test_midnight_end_extended(self):
         # 23:00–23:30 extended to 23:00–00:00 (midnight)
@@ -58,6 +65,7 @@ class TestComputeDiff:
         )
         assert len(diff) == 1
         assert diff[0]["type"] == "extended"
+        assert "стало 🟥23:00–00:00" in diff[0]["detail"]
 
     def test_multiple_queues_only_changed_returned(self):
         old = {"1.1": [RANGE_A], "1.2": [RANGE_B]}
