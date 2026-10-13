@@ -188,6 +188,21 @@ pip install -r requirements-dev.txt   # runtime deps plus pytest
 python -m pytest tests/
 ```
 
+## Project layout
+
+```
+src/        the bot itself — config, pipeline, formatting, image rendering
+tests/      pytest suite, mirroring src/ one module at a time
+assets/     images the bot sends (status pictures, the /start banner)
+tools/      one-off scripts unrelated to the running bot (builds krem_queues.json)
+```
+
+Everything in `src/` imports the others flatly (`from formatter import ...`), the
+same as if they all still sat in one directory. `python src/main.py` already puts
+`src/` on `sys.path` on its own — that's just how Python runs a script — and
+`pyproject.toml` tells pytest to do the same before collecting tests. Nothing here
+is a namespaced package, so no import had to change when the layout did.
+
 ## Tech stack
 
 - Python 3.12

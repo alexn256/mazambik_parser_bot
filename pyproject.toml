@@ -1,0 +1,5 @@
+[tool.pytest.ini_options]
+# Lets every test keep importing project modules the flat way (`import main`,
+# `from formatter import ...`) without turning src/ into a named package —
+# pytest puts it on sys.path before collecting anything.
+pythonpath = ["src"]

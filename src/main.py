@@ -61,6 +61,9 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 
 UKRAINE_TZ = timezone(timedelta(hours=3))
 
+# assets/ lives at the repo root, one level up from this file's own src/
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 try:
     QUEUES = QueueLookup(QUEUES_FILE_PATH)
     logger.info("Loaded queue lookup: %d places", len(QUEUES._data))
@@ -180,7 +183,7 @@ async def send_current_status(chat_id: int) -> None:
         image_name = "power_on.png"
 
     text = "\n".join(lines)
-    image_path = os.path.join(os.path.dirname(__file__), "assets", image_name)
+    image_path = os.path.join(PROJECT_ROOT, "assets", image_name)
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             with open(image_path, "rb") as f:
@@ -900,7 +903,7 @@ async def send_start_message(client: httpx.AsyncClient, chat_id: int) -> None:
         "📊 Статистика — години відключень за тиждень/місяць\n\n"
         "З побажаннями та зауваженнями звертайтесь до @M_AHTS."
     )
-    image_path = os.path.join(os.path.dirname(__file__), "assets", "bot_title.png")
+    image_path = os.path.join(PROJECT_ROOT, "assets", "bot_title.png")
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
     try:
         with open(image_path, "rb") as f:

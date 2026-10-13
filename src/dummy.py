@@ -1,9 +1,10 @@
 """Test script: processes a sample image and sends the result to Telegram.
 
-Usage:
-    python dummy.py                          # first schedule (clears state)
-    python dummy.py --second                 # second schedule (shows diff)
-    python dummy.py --reset                  # clear state only
+Run from the repo root, so its relative asset paths and config defaults
+resolve the same way main.py's do:
+    python src/dummy.py                      # first schedule (clears state)
+    python src/dummy.py --second              # second schedule (shows diff)
+    python src/dummy.py --reset                # clear state only
 """
 import asyncio
 import logging

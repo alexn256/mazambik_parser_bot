@@ -2,8 +2,10 @@
 .venv
 __pycache__
 *.pyc
-*.jpg
-*.png
+# dummy.py's local sample screenshots — not needed at runtime. Everything
+# else under assets/ (bot_title.png, logo.png, power_on/off.png) IS: a
+# blanket *.jpg/*.png here would silently strip those from the image too.
+assets/photo_*.jpg
 state.json
 subscribers.json
 history.json
