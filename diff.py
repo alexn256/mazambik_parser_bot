@@ -64,7 +64,7 @@ def compute_diff(old_schedule: dict, new_schedule: dict) -> list[dict]:
                             "type": "shortened",
                             "detail": (
                                 f"Черга {queue}: скоротили "
-                                f"(було {old_key} → стало 🟩{new_key})"
+                                f"(було {old_key} → стало 🟢{new_key})"
                             ),
                         })
                     elif _end_minutes(new_end) > _end_minutes(old_end):
@@ -73,7 +73,7 @@ def compute_diff(old_schedule: dict, new_schedule: dict) -> list[dict]:
                             "type": "extended",
                             "detail": (
                                 f"Черга {queue}: розширили "
-                                f"(було {old_key} → стало 🟥{new_key})"
+                                f"(було {old_key} → стало 🔴{new_key})"
                             ),
                         })
                     else:
