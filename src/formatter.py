@@ -123,10 +123,13 @@ def format_schedule(
     if queue_filter:
         q_num = queue_filter.split(".")[0]
         emoji = QUEUE_EMOJI[q_num]
-        lines.append(f"{emoji} <b>{q_num} черга</b>")
         ranges = schedule.get(queue_filter, [])
         has_ranges = bool(ranges)
-        lines.append(f"  {queue_filter} · {_fmt_ranges(ranges)}")
+        # One queue, one line: "1 черга" above "1.2 · ranges" said the same
+        # number twice for a subscriber who only ever sees their own queue.
+        # The grouped two-line form stays in the full schedule, where a
+        # shared header over both sub-queues earns its place.
+        lines.append(f"{emoji} <b>Черга {queue_filter}</b> · {_fmt_ranges(ranges)}")
 
         # The bar and hour totals describe the whole day, same as always — only
         # the printed ranges above are trimmed to what is still ahead. Counting

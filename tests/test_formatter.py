@@ -34,6 +34,25 @@ class TestFormatStamp:
         assert format_stamp({"date": "10.04.2026"}) == "?"
 
 
+class TestPersonalViewHeader:
+    """A subscriber who only ever sees their own queue should not see its
+    number said twice — once as "1 черга", again as "1.2 · ...ranges"."""
+
+    def test_queue_and_subqueue_appear_together_once(self, outage_day):
+        text = format_schedule(outage_day, diff=None, is_first=True, queue_filter="1.2")
+        assert "Черга 1.2</b> · " in text
+        assert text.count("1.2") == 1
+        assert "1 черга" not in text
+
+    def test_matches_how_the_rest_of_the_bot_names_a_queue(self, outage_day):
+        # send_current_status / compute_stats both say "черга 1.2" as one
+        # phrase — the personal view should read the same way, not split it
+        # into a parent queue header over a sub-queue line
+        text = format_schedule(outage_day, diff=None, is_first=True, queue_filter="1.2")
+        assert "<b>\n" not in text
+        assert "черга</b>\n" not in text
+
+
 class TestSwitchingNote:
     """The soft half hour is stated once per message, not beside every range."""
 
@@ -122,7 +141,7 @@ class TestPastRangesAreTrimmed:
         # outage, and the bar/hours keep saying so
         text = format_schedule(outage_day, diff=None, is_first=False,
                                queue_filter="1.1", now=self._at(23, 0))
-        assert "  1.1 · немає відключень" in text
+        assert "Черга 1.1</b> · немає відключень" in text
         assert SWITCHING_NOTE not in text
         assert "8.5 год без світла" in text
 
