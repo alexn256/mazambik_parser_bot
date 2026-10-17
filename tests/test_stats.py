@@ -27,11 +27,6 @@ class TestProgressBar:
             total = bar.count("🟥") + bar.count("🟩")
             assert total == BAR_BLOCKS
 
-    def test_a_shorter_window_rescales_the_bar(self):
-        # 90 outage minutes is a sliver of a 24h day but all of a 90-min window
-        assert _progress_bar(90, total_minutes=1440).count("🟥") == 1
-        assert _progress_bar(90, total_minutes=90) == "🟥" * BAR_BLOCKS
-
 
 class TestTotalOutageMinutes:
     def test_empty(self):

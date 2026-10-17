@@ -98,19 +98,33 @@ class TestPastRangesAreTrimmed:
         assert "00:00–02:30" not in text
         assert "19:00–20:30" in text
 
-    def test_hour_totals_count_only_what_is_left_of_the_day(self, outage_day):
-        # At 15:30, 8.5h remain until midnight; only 19:00-20:30 (1.5h) is
-        # still outage, so "з світлом" must read against those 8.5h, not 24
+    def test_hour_totals_and_the_bar_still_describe_the_whole_day(self, outage_day):
+        # 1.1's four ranges add up to 8.5h out of 24 — that total must not
+        # shrink just because the printed list above it got trimmed to what
+        # is still ahead, or the bar would look like the outage picture
+        # itself changed when only the display did
         text = format_schedule(outage_day, diff=None, is_first=False,
                                queue_filter="1.1", now=self._at(15, 30))
-        assert "1.5 год без світла" in text
-        assert "7.0 год зі світлом" in text
+        assert "8.5 год без світла" in text
+        assert "15.5 год зі світлом" in text
+
+    def test_hour_totals_do_not_move_as_the_day_goes_on(self, outage_day):
+        at_dawn = format_schedule(outage_day, diff=None, is_first=False,
+                                  queue_filter="1.1", now=self._at(1, 0))
+        at_night = format_schedule(outage_day, diff=None, is_first=False,
+                                   queue_filter="1.1", now=self._at(23, 0))
+        assert "8.5 год без світла" in at_dawn
+        assert "8.5 год без світла" in at_night
 
     def test_a_queue_with_nothing_left_today_reads_as_quiet(self, outage_day):
+        # Nothing left to wait for, so the note about switching windows has
+        # nothing left to caveat either — but the day still had 8.5h of
+        # outage, and the bar/hours keep saying so
         text = format_schedule(outage_day, diff=None, is_first=False,
                                queue_filter="1.1", now=self._at(23, 0))
-        assert "немає відключень" in text
+        assert "  1.1 · немає відключень" in text
         assert SWITCHING_NOTE not in text
+        assert "8.5 год без світла" in text
 
     def test_tomorrows_schedule_is_never_trimmed(self, outage_day):
         # Published the evening before — none of it is "in the past" yet

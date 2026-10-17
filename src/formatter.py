@@ -113,17 +113,12 @@ def format_schedule(
 
     lines.append("")
 
-    schedule = parsed["schedule"]
-    # A day's remaining light-hours are counted against what is left of it, not
-    # the full 24 — otherwise trimming the past out of the ranges below would
-    # leave the "зі світлом" total still crediting hours already lived through.
-    window_minutes = 24 * 60
+    full_schedule = parsed["schedule"]
+    schedule = full_schedule
     if parsed.get("date"):
         now = now or datetime.now(UKRAINE_TZ)
-        if parsed["date"] == now.strftime("%d.%m.%Y"):
-            window_minutes -= now.hour * 60 + now.minute
         schedule = {label: _drop_finished_ranges(ranges, parsed["date"], now)
-                   for label, ranges in schedule.items()}
+                   for label, ranges in full_schedule.items()}
 
     if queue_filter:
         q_num = queue_filter.split(".")[0]
@@ -133,9 +128,15 @@ def format_schedule(
         has_ranges = bool(ranges)
         lines.append(f"  {queue_filter} · {_fmt_ranges(ranges)}")
 
-        minutes_off = _total_outage_minutes(ranges)
-        minutes_on = window_minutes - minutes_off
-        bar = _progress_bar(minutes_off, window_minutes)
+        # The bar and hour totals describe the whole day, same as always — only
+        # the printed ranges above are trimmed to what is still ahead. Counting
+        # them against what is left of the day instead would make the total
+        # shrink as the day goes on, which reads as the outage picture itself
+        # changing when nothing about it has.
+        full_ranges = full_schedule.get(queue_filter, [])
+        minutes_off = _total_outage_minutes(full_ranges)
+        minutes_on = 24 * 60 - minutes_off
+        bar = _progress_bar(minutes_off)
         lines.append(f"\n{bar}\n")
         lines.append(f"🕯️ {minutes_off / 60:.1f} год без світла")
         lines.append(f"💡 {minutes_on / 60:.1f} год зі світлом")
