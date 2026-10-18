@@ -208,6 +208,16 @@ PICTURE_CACHE_SIZE = 4
 # Telegram's limit on the text it will show under a photo
 CAPTION_LIMIT = 1024
 
+# A persistent bottom-keyboard button that always re-opens /start's menu, so a
+# subscriber never has to remember or type the command. Set once per chat (it
+# survives every later message that doesn't touch reply_markup) and recognised
+# back as plain text — Telegram sends whatever is written on the button.
+MENU_BUTTON_LABEL = "☰ Меню"
+MENU_KEYBOARD = {
+    "keyboard": [[{"text": MENU_BUTTON_LABEL}]],
+    "resize_keyboard": True,
+}
+
 # Consecutive unreachable polls before the log says so once, loudly
 UNREACHABLE_ALERT_AFTER = 3
 
@@ -921,6 +931,15 @@ async def send_start_message(client: httpx.AsyncClient, chat_id: int) -> None:
             json={"chat_id": chat_id, "text": caption, "reply_markup": keyboard},
         )
 
+    # A single short message sets the persistent keyboard — it then survives
+    # every later message that doesn't specify its own reply_markup, so this
+    # need not be repeated anywhere else.
+    await send_message(
+        BOT_TOKEN, chat_id,
+        f"Кнопка «{MENU_BUTTON_LABEL}» знизу завжди повертає до цього меню.",
+        reply_markup=MENU_KEYBOARD,
+    )
+
 
 async def send_queue_selector(client: httpx.AsyncClient, chat_id: int) -> None:
     """Send inline keyboard for queue selection."""
@@ -1186,14 +1205,15 @@ async def poll_commands() -> None:
                     if not text:
                         continue
 
-                    # A command aborts any in-progress wizard.
-                    if text.startswith("/"):
+                    # A command — or the persistent menu button — aborts any
+                    # in-progress wizard.
+                    if text.startswith("/") or text == MENU_BUTTON_LABEL:
                         fq_state.pop(chat_id, None)
                     elif chat_id in fq_state:
                         await handle_fq_text(client, chat_id, text.strip())
                         continue
 
-                    if text.startswith("/start"):
+                    if text.startswith("/start") or text == MENU_BUTTON_LABEL:
                         await send_start_message(client, chat_id)
 
                     elif text.startswith("/status"):

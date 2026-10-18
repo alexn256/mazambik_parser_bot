@@ -34,6 +34,7 @@ class FakeClient:
 
     async def post(self, url, json=None):
         FakeClient.calls += 1
+        FakeClient.last_json = json
         item = FakeClient.scripted.pop(0)
         if isinstance(item, Exception):
             raise item
@@ -90,3 +91,14 @@ class TestSendMessage:
         FakeClient.scripted = [FakeResponse(500)] * 3
         assert asyncio.run(send_message("t", 1, "hi")) is False
         assert FakeClient.calls == 3
+
+    def test_reply_markup_omitted_by_default(self, fake_http):
+        FakeClient.scripted = [FakeResponse(200)]
+        asyncio.run(send_message("t", 1, "hi"))
+        assert "reply_markup" not in FakeClient.last_json
+
+    def test_reply_markup_passed_through_when_given(self, fake_http):
+        FakeClient.scripted = [FakeResponse(200)]
+        keyboard = {"keyboard": [[{"text": "☰ Меню"}]], "resize_keyboard": True}
+        asyncio.run(send_message("t", 1, "hi", reply_markup=keyboard))
+        assert FakeClient.last_json["reply_markup"] == keyboard

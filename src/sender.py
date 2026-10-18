@@ -67,14 +67,23 @@ async def _deliver(chat_id: int, kind: str, post):
     return None
 
 
-async def send_message(bot_token: str, chat_id: int, text: str) -> bool:
-    """Send a text message via Telegram Bot API. True on success."""
+async def send_message(bot_token: str, chat_id: int, text: str,
+                       reply_markup: dict | None = None) -> bool:
+    """Send a text message via Telegram Bot API. True on success.
+
+    `reply_markup` is almost always omitted: leaving it out changes nothing
+    about whatever keyboard the chat already has showing. It only needs
+    passing to actually change that — set the persistent bottom keyboard, show
+    an inline one, or remove one.
+    """
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
     payload = {
         "chat_id": chat_id,
         "text": text,
         "parse_mode": "HTML",
     }
+    if reply_markup is not None:
+        payload["reply_markup"] = reply_markup
 
     client = _client_for_sends()
     return await _deliver(chat_id, "message", lambda: client.post(url, json=payload)) is not None

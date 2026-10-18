@@ -922,3 +922,52 @@ class TestAdaptivePolling:
     def test_one_busy_day_among_quiet_ones_is_enough(self):
         days = self.QUIET + self.ACTIVE
         assert main._next_poll_delay(days, self._at(10)) == main.POE_POLL_INTERVAL
+
+
+class TestSendStartMessage:
+    """/start — and the persistent menu button, which reuses it — set the
+    bottom keyboard once rather than attaching it to every later message."""
+
+    class FakeClient:
+        """Stands in for the raw httpx client send_start_message posts through
+        directly (as opposed to sender.send_message, stubbed separately)."""
+
+        def __init__(self):
+            self.calls = []
+
+        async def post(self, url, **kwargs):
+            self.calls.append((url, kwargs))
+            class _Resp:
+                status_code = 200
+            return _Resp()
+
+    @pytest.fixture
+    def menu_calls(self, monkeypatch):
+        calls = []
+
+        async def fake_send_message(token, chat_id, text, reply_markup=None):
+            calls.append((chat_id, text, reply_markup))
+            return True
+
+        monkeypatch.setattr(main, "send_message", fake_send_message)
+        return calls
+
+    def test_the_welcome_photo_still_goes_out(self, menu_calls):
+        client = self.FakeClient()
+        asyncio.run(main.send_start_message(client, 42))
+        assert len(client.calls) == 1
+        assert "sendPhoto" in client.calls[0][0]
+
+    def test_a_follow_up_message_sets_the_persistent_keyboard(self, menu_calls):
+        client = self.FakeClient()
+        asyncio.run(main.send_start_message(client, 42))
+        assert len(menu_calls) == 1
+        chat_id, text, reply_markup = menu_calls[0]
+        assert chat_id == 42
+        assert reply_markup == main.MENU_KEYBOARD
+        assert main.MENU_BUTTON_LABEL in text
+
+    def test_the_keyboard_button_label_matches_what_it_sets(self):
+        # If these ever drift apart, pressing the button stops being
+        # recognised as the same text poll_commands dispatches on
+        assert main.MENU_KEYBOARD["keyboard"][0][0]["text"] == main.MENU_BUTTON_LABEL
