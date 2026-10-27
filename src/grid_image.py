@@ -248,8 +248,9 @@ def render(schedule: dict, stamp: str, intro: list | None = None,
         on_labels, off_labels, switching_labels = _now_status(schedule, cells, now_minutes)
     else:
         on_labels, off_labels, switching_labels = [], [], []
-    # row labels and the periods list flag anything not reliably on
-    off_now = {q: True for q in off_labels + switching_labels}
+    # row labels and the periods list turn red only for a queue the current-time
+    # line crosses while it is strictly off (gpv-active) — not the switching one
+    off_now = {q: True for q in off_labels}
     now_box_lines = 3 + (1 if switching_labels else 0)
 
     top = _table_top(intro, now_minutes, now_box_lines)
@@ -361,25 +362,35 @@ def render(schedule: dict, stamp: str, intro: list | None = None,
             d.rectangle([x, y0, x + CELL_W - 1, y0 + CELL_H - 1], fill=colour)
             if i % 2:  # the half-hour mark inside this hour: a dashed divider
                 _dashed_vline(d, x, y0, y0 + CELL_H, _darken(colour))
-            # every row's own faint seam, even between a queue's own two rows
+
+        if now_minutes is not None:
+            # The site's own <span class="gpv-line"> sits inside each cell, not
+            # as one continuous overlay — so every row's own seam still shows
+            # through it, and it never reaches into the trailing blank row.
+            slot = now_minutes // 30
+            frac = (now_minutes % 30) / 30
+            line_x = GRID_X + (slot + frac) * PITCH_X
+            d.rectangle([line_x - 2, y0, line_x + 2, y0 + CELL_H - 1], fill=WHITE)  # box-shadow halo
+            d.rectangle([line_x - 1, y0, line_x + 1, y0 + CELL_H - 1], fill=BLUE)
+
+        # every row's own faint seam, even between a queue's own two rows —
+        # drawn last so it still cuts across the current-time line too
+        for i, colour in enumerate(row_cells):
+            x = GRID_X + i * PITCH_X
+            if now_minutes is not None and i < now_minutes // 30:
+                colour = _dim(colour)
             d.line([x, bottom_y, x + CELL_W - 1, bottom_y], fill=_lighten(colour))
         if sub == 1 and row:  # queue-pair boundary: "1.2 | 2.1", not "1.1 | 1.2"
             d.line([TBL_L - 1, y0, GRID_R, y0], fill=LABEL_BORDER)
 
     # The site always leaves one trailing blank row below 6.2, same height,
-    # label column and grid both plain white
-    blank_y0 = grid_y + 12 * PITCH_Y
-    d.rectangle([TBL_L - 1, blank_y0, GRID_R, grid_b - 1], fill=WHITE)
+    # label column and grid both plain white, with no vertical dividers at all
+    queues_bottom = grid_y + 12 * PITCH_Y
+    d.rectangle([TBL_L - 1, queues_bottom, GRID_R, grid_b - 1], fill=WHITE)
 
-    for hour in range(1, 24):  # hour boundary, spanning header + body together
+    for hour in range(1, 24):  # hour boundary, spanning header + the 12 queue rows
         x = GRID_X + hour * 2 * PITCH_X
-        d.line([x, top, x, grid_b - 1], fill=HOUR_BORDER)
-
-    if now_minutes is not None:
-        slot = now_minutes // 30
-        frac = (now_minutes % 30) / 30
-        line_x = GRID_X + (slot + frac) * PITCH_X
-        d.line([line_x, grid_y - 1, line_x, grid_b - 1], fill=BLUE, width=2)
+        d.line([x, top, x, queues_bottom - 1], fill=HOUR_BORDER)
 
     # The site's own .gpv-scroll frame around the whole table
     d.rectangle([TBL_L - 1, top, GRID_R, grid_b - 1], outline=SCROLL_BORDER)
@@ -405,8 +416,8 @@ def render(schedule: dict, stamp: str, intro: list | None = None,
         d.line([TBL_L + col * col_w, underline_y, TBL_L + (col + 1) * col_w - 16, underline_y],
                fill=(238, 238, 238))
 
-    d.text((TBL_L, note_y), NOTE_TEXT, font=_font("Regular", 12), fill=NOTE_COLOUR, anchor="lm")
-    d.text((width - 14, stamp_y), stamp, font=_font("Regular", 11), fill=TEXT, anchor="rm")
+    d.text((TBL_L, note_y), NOTE_TEXT, font=_font("Regular", 11), fill=NOTE_COLOUR, anchor="lm")
+    d.text((width - 14, stamp_y), stamp, font=_font("Regular", 10), fill=TEXT, anchor="rm")
     return img
 
 
