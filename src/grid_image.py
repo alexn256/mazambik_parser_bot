@@ -52,7 +52,7 @@ ROW_SEAM_ALPHA = 0.6            # rgba(255,255,255,.6) seam under every cell
 
 PAST_OPACITY = 0.45  # .gpv-past
 
-CELL_W, CELL_H = 28, 24
+CELL_W, CELL_H = 14, 24  # the site's own .gpv-c: narrower than tall, not square
 # Half-hour cells touch directly — the site's own border-right/bottom on them
 # is 0 or near-invisible. What dividers exist (hour boundary, half-hour mark,
 # queue-pair gap) are drawn afterward, overlaying the cells' own edge pixels.
@@ -154,6 +154,15 @@ def _fmt_period(r: dict) -> str:
     return f"{r['start']}–{end}"
 
 
+def _label_ranges(label: str, schedule: dict, periods: dict | None) -> list[dict]:
+    """A queue's ranges for the periods list: the site's own when we have
+    them, `schedule`'s merged ones otherwise (a screenshot has no page to
+    read the site's version from)."""
+    if periods and label in periods:
+        return periods[label]["ranges"]
+    return schedule.get(label, [])
+
+
 # The provider's own cell classes: gpv-s1 on, gpv-s2 off, gpv-s3 switching
 PROVIDER_COLOURS = {"1": ON, "2": OFF, "3": SW}
 
@@ -184,15 +193,56 @@ def _row_cells(ranges: list[dict], painted: str | None = None) -> list[tuple]:
     return cells
 
 
-def _table_top(intro, live=False, now_box_lines=3) -> int:
+def _table_top(intro, live=False, now_box_lines=3, legend_rows=1) -> int:
     """Where the table header starts, after intro/caption/status-box/legend."""
     if not intro:
         return TABLE_TOP_BARE
     y = INTRO_TOP + (len(intro) - 1) * INTRO_PITCH + CAPTION_GAP
     if live:
         y += NOW_BOX_GAP + NOW_BOX_PAD_TOP + (now_box_lines - 1) * INTRO_PITCH + NOW_BOX_PAD_BOTTOM
-    y += LEGEND_GAP + 14  # one legend row
+    y += LEGEND_GAP + legend_rows * LEGEND_ROW_PITCH
     return int(y + TABLE_GAP)
+
+
+def _wrap_text(text: str, font: ImageFont.FreeTypeFont, max_width: float) -> list[str]:
+    """Word-wrap `text` to fit `max_width`, the way a browser would a paragraph."""
+    words = text.split(" ")
+    lines, current = [], ""
+    for word in words:
+        trial = f"{current} {word}".strip()
+        if current and font.getlength(trial) > max_width:
+            lines.append(current)
+            current = word
+        else:
+            current = trial
+    if current:
+        lines.append(current)
+    return lines
+
+
+LEGEND_ROW_PITCH = 16
+LEGEND_ITEM_GAP = 18  # gap after one item's text, before the next item's swatch
+
+
+def _legend_item_width(item: tuple, font: ImageFont.FreeTypeFont) -> float:
+    _, text, swatch_w, _ = item
+    return swatch_w + 6 + font.getlength(text) + LEGEND_ITEM_GAP
+
+
+def _legend_rows(items: list[tuple], font: ImageFont.FreeTypeFont, max_width: float) -> list[list]:
+    """Group legend items left-to-right, wrapping to a new row like the site's
+    own `.gpv-legend{flex-wrap:wrap}` does once a row runs out of room."""
+    rows, row, row_w = [], [], 0.0
+    for item in items:
+        w = _legend_item_width(item, font)
+        if row and row_w + w > max_width:
+            rows.append(row)
+            row, row_w = [], 0.0
+        row.append(item)
+        row_w += w
+    if row:
+        rows.append(row)
+    return rows
 
 
 LEGEND_SWATCH_W = 16  # the site's own .gpv-legend i{width:16px}
@@ -251,17 +301,39 @@ def render(schedule: dict, stamp: str, intro: list | None = None,
     # itself currently marks gpv-active (strictly off, not mid-switch)
     off_now = {label: info["active"] for label, info in (periods or {}).items()}
 
-    top = _table_top(intro, live, now_box_lines)
+    content_w = GRID_R - TBL_L  # the width everything below the grid wraps to
+
+    reg, bold = _font("Regular", 12), _font("Bold", 12)
+    hour_font = _font("Regular", 9)   # narrower cells (14px) need a smaller hour label
+    half_font = _font("Regular", 8)   # ... and an even smaller "00"/"30" marker
+    legend_font = _font("Regular", 11)
+    note_font = _font("Regular", 11)
+
+    legend_item_rows = _legend_rows(_legend_items(live), legend_font, content_w)
+
+    top = _table_top(intro, live, now_box_lines, len(legend_item_rows))
     grid_y = top + HDR_HOUR_H + HDR_HALF_H
     grid_b = grid_y + 13 * PITCH_Y  # the 12 queues, plus the site's own trailing blank row
     periods_top = grid_b + 20
-    periods_rows = -(-12 // 4)  # 4 columns
+    # The site's own grid-template-columns:repeat(auto-fill,minmax(230px,1fr))
+    # sizes columns off its own shorter text; sizing ours off what our font
+    # actually needs avoids the longest queue's ranges overrunning the next
+    # column — the failure mode a fixed 230px guess ran straight into.
+    label_font, periods_font = _font("Bold", 11), _font("Regular", 11)
+    max_item_w = max(
+        label_font.getlength(label) + 5 + periods_font.getlength("— ")
+        + periods_font.getlength(", ".join(_fmt_period(r) for r in _label_ranges(
+            label, schedule, periods)) or "—")
+        for label in (f"{q}.{s}" for q in range(1, 7) for s in (1, 2))
+    )
+    periods_cols = max(1, min(4, int(content_w // (max_item_w + 20))))
+    periods_rows = -(-12 // periods_cols)
+    note_lines = _wrap_text(NOTE_TEXT, note_font, content_w)
     note_y = periods_top + 16 + periods_rows * 20 + 16
-    stamp_y = note_y + 18
+    stamp_y = note_y + (len(note_lines) - 1) * 14 + 18
     height = stamp_y + 10
     width = GRID_R + 14
 
-    reg, bold = _font("Regular", 12), _font("Bold", 12)
     img = Image.new("RGB", (width, height), WHITE)
     d = ImageDraw.Draw(img)
 
@@ -297,14 +369,15 @@ def render(schedule: dict, stamp: str, intro: list | None = None,
                        (", ".join(switching_labels), True)])
             y = box_bottom
 
-        legend_y = y + LEGEND_GAP + 7
-        lx = INTRO_X
-        for colour, text, swatch_w, bordered in _legend_items(live):
-            d.rectangle([lx, legend_y - 6, lx + swatch_w, legend_y + 6], fill=colour,
-                        outline=HOUR_BORDER if bordered else None)
-            lx += swatch_w + 6
-            d.text((lx, legend_y), text, font=_font("Regular", 11), fill=TEXT, anchor="lm")
-            lx += d.textlength(text, font=_font("Regular", 11)) + 18
+        for row_i, legend_row in enumerate(legend_item_rows):
+            legend_y = y + LEGEND_GAP + 7 + row_i * LEGEND_ROW_PITCH
+            lx = INTRO_X
+            for colour, text, swatch_w, bordered in legend_row:
+                d.rectangle([lx, legend_y - 6, lx + swatch_w, legend_y + 6], fill=colour,
+                            outline=HOUR_BORDER if bordered else None)
+                lx += swatch_w + 6
+                d.text((lx, legend_y), text, font=legend_font, fill=TEXT, anchor="lm")
+                lx += legend_font.getlength(text) + LEGEND_ITEM_GAP
 
     # Table header: one row of "HH–HH" per hour, one row of "00"/"30" per half-hour.
     # Cells touch directly (no gap); a hairline shows only where the site draws
@@ -319,12 +392,12 @@ def render(schedule: dict, stamp: str, intro: list | None = None,
         if hour == now_hour:
             d.rectangle([x0, top, x1 - 1, top + HDR_HOUR_H - 1], fill=NOW_BG)
             _centre(d, x0, x1, top + HDR_HOUR_H / 2, f"{hour:02d}–{(hour + 1) % 24:02d}",
-                    reg, fill=NOW_TEXT)
+                    hour_font, fill=NOW_TEXT)
         else:
-            _centre(d, x0, x1, top + HDR_HOUR_H / 2, f"{hour:02d}–{(hour + 1) % 24:02d}", reg)
+            _centre(d, x0, x1, top + HDR_HOUR_H / 2, f"{hour:02d}–{(hour + 1) % 24:02d}", hour_font)
         for half, half_label in enumerate(("00", "30")):
             hx0 = x0 + half * PITCH_X
-            _centre(d, hx0, hx0 + PITCH_X, top + HDR_HOUR_H + HDR_HALF_H / 2, half_label, reg,
+            _centre(d, hx0, hx0 + PITCH_X, top + HDR_HOUR_H + HDR_HALF_H / 2, half_label, half_font,
                     fill=MUTED)
             if half:
                 d.line([hx0, top + HDR_HOUR_H, hx0, grid_y - 1], fill=GEN_BORDER)
@@ -389,30 +462,29 @@ def render(schedule: dict, stamp: str, intro: list | None = None,
     # The site's own .gpv-scroll frame around the whole table
     d.rectangle([TBL_L - 1, top, GRID_R, grid_b - 1], outline=SCROLL_BORDER)
 
-    # Periods list: each queue's outage ranges, four per row
+    # Periods list: each queue's outage ranges, columns matching the site's own
+    # grid-template-columns:repeat(auto-fill,minmax(230px,1fr))
     _centre(d, TBL_L, GRID_R, periods_top, PERIODS_CAPTION, _font("Bold", 12))
-    col_w = (GRID_R - TBL_L) / 4
-    body_font = _font("Regular", 11)
+    col_w = content_w / periods_cols
     for row in range(12):
         queue, sub = row // 2 + 1, row % 2 + 1
         label = f"{queue}.{sub}"
-        col, line_row = row % 4, row // 4
+        col, line_row = row % periods_cols, row // periods_cols
         px = TBL_L + col * col_w
         py = periods_top + 16 + line_row * 20
         colour = ACTIVE_RED if off_now.get(label) else TEXT
-        label_ranges = periods[label]["ranges"] if periods and label in periods \
-            else schedule.get(label, [])
-        d.text((px, py), label, font=_font("Bold", 11), fill=colour, anchor="lm")
-        px += d.textlength(label, font=_font("Bold", 11)) + 5
-        d.text((px, py), "—", font=body_font, fill=TEXT, anchor="lm")
-        px += d.textlength("— ", font=body_font)
-        ranges_txt = ", ".join(_fmt_period(r) for r in label_ranges)
-        d.text((px, py), ranges_txt or "—", font=body_font, fill=TEXT, anchor="lm")
+        d.text((px, py), label, font=label_font, fill=colour, anchor="lm")
+        px += label_font.getlength(label) + 5
+        d.text((px, py), "—", font=periods_font, fill=TEXT, anchor="lm")
+        px += periods_font.getlength("— ")
+        ranges_txt = ", ".join(_fmt_period(r) for r in _label_ranges(label, schedule, periods))
+        d.text((px, py), ranges_txt or "—", font=periods_font, fill=TEXT, anchor="lm")
         underline_y = py + 10
         d.line([TBL_L + col * col_w, underline_y, TBL_L + (col + 1) * col_w - 16, underline_y],
                fill=(238, 238, 238))
 
-    d.text((TBL_L, note_y), NOTE_TEXT, font=_font("Regular", 11), fill=NOTE_COLOUR, anchor="lm")
+    for i, line in enumerate(note_lines):
+        d.text((TBL_L, note_y + i * 14), line, font=note_font, fill=NOTE_COLOUR, anchor="lm")
     d.text((width - 14, stamp_y), stamp, font=_font("Regular", 10), fill=TEXT, anchor="rm")
     return img
 

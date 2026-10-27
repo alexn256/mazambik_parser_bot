@@ -22,6 +22,15 @@ def cell_colour(img, row, slot, table_top=5):
     return img.convert("RGB").getpixel((x, y))
 
 
+def table_top_for(intro, live=False, now_box_lines=3):
+    """`_table_top`, but with the legend row count computed the same way
+    `render` itself does — the legend can wrap, so this isn't always 1."""
+    font = grid_image._font("Regular", 11)
+    content_w = grid_image.GRID_R - TBL_L
+    rows = len(grid_image._legend_rows(grid_image._legend_items(live), font, content_w))
+    return grid_image._table_top(intro, live, now_box_lines, rows)
+
+
 class TestCellColours:
     def test_outage_body_is_red(self):
         img = render(ONE_OUTAGE, "10.04.2026 22:18")
@@ -149,14 +158,14 @@ class TestLiveStatus:
     def test_current_time_line_sits_at_the_sites_own_percentage(self):
         # 12:00 is slot 24; line_pct=50 puts the line at its exact midpoint
         img = render(ONE_OUTAGE, "x", intro=self.INTRO, now=self.NOW).convert("RGB")
-        top = grid_image._table_top(self.INTRO, True, 3)
+        top = table_top_for(self.INTRO, True, 3)
         grid_y = top + grid_image.HDR_HOUR_H + grid_image.HDR_HALF_H
         line_x = round(GRID_X + 24.5 * PITCH_X)
         assert img.getpixel((line_x, grid_y + 5)) == grid_image.BLUE
 
     def test_no_now_means_no_line_and_the_static_height(self):
         img = render(ONE_OUTAGE, "x", intro=self.INTRO).convert("RGB")
-        top = grid_image._table_top(self.INTRO, False)
+        top = table_top_for(self.INTRO, False)
         grid_y = top + grid_image.HDR_HOUR_H + grid_image.HDR_HALF_H
         line_x = round(GRID_X + 24.5 * PITCH_X)
         assert img.getpixel((line_x, grid_y + 5)) != grid_image.BLUE
@@ -189,7 +198,7 @@ class TestRenderPng:
         png = render_png(day["schedule"], day["updated_at"], day["intro"],
                          day["cells"])
         img = Image.open(io.BytesIO(png))
-        top = grid_image._table_top(day["intro"])
+        top = table_top_for(day["intro"])
         # 1.1 is off 00:00–02:30, so slot 0 is red and slot 4 is the switching cell
         assert cell_colour(img, 0, 0, top) == OFF
         assert cell_colour(img, 0, 4, top) == SW
@@ -198,7 +207,7 @@ class TestRenderPng:
         with open(os.path.join(FIXTURES, "gpv_outage_day.html"), encoding="utf-8") as f:
             day = parse_response(f.read())[0]
         img = render(day["schedule"], day["updated_at"], day["intro"], day["cells"])
-        top = grid_image._table_top(day["intro"])
+        top = table_top_for(day["intro"])
         for row in range(12):
             label = f"{row // 2 + 1}.{row % 2 + 1}"
             for slot, painted in enumerate(day["cells"][label]):
