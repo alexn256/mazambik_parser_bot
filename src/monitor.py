@@ -3,14 +3,17 @@ import logging
 import os
 import re
 import tempfile
-from datetime import datetime, timezone, timedelta
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 
 logger = logging.getLogger(__name__)
 
-UKRAINE_TZ = timezone(timedelta(hours=3))
+# A fixed UTC+3 offset is wrong half the year — Ukraine is EET (UTC+2) outside
+# DST, EEST (UTC+3) inside it. ZoneInfo tracks which one actually applies.
+UKRAINE_TZ = ZoneInfo("Europe/Kyiv")
 POLL_INTERVAL = 60  # seconds between channel checks
 
 UA_MONTHS = {

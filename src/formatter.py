@@ -1,8 +1,11 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from stats import _progress_bar, _total_outage_minutes
 
-UKRAINE_TZ = timezone(timedelta(hours=3))
+# A fixed UTC+3 offset is wrong half the year — Ukraine is EET (UTC+2) outside
+# DST, EEST (UTC+3) inside it. ZoneInfo tracks which one actually applies.
+UKRAINE_TZ = ZoneInfo("Europe/Kyiv")
 
 QUEUE_EMOJI = {
     "1": "\U0001f7e1",  # 🟡

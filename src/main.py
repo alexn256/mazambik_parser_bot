@@ -5,7 +5,8 @@ import logging
 import os
 import re
 from collections import OrderedDict
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -59,7 +60,9 @@ logger = logging.getLogger(__name__)
 # path — that put the bot's credentials into the deployment logs on every poll.
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
-UKRAINE_TZ = timezone(timedelta(hours=3))
+# A fixed UTC+3 offset is wrong half the year — Ukraine is EET (UTC+2) outside
+# DST, EEST (UTC+3) inside it. ZoneInfo tracks which one actually applies.
+UKRAINE_TZ = ZoneInfo("Europe/Kyiv")
 
 # assets/ lives at the repo root, one level up from this file's own src/
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
