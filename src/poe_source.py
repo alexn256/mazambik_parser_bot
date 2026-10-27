@@ -13,19 +13,24 @@ blocks, one per day, each ending with the provider's own "last updated" stamp �
 which is the authoritative answer to "when did this schedule appear or change",
 far more precise than the post time of a Telegram message.
 
-A day under outages also carries a `table.turnoff-scheduleui-table`: 12 rows
-(черга.підчерга, top to bottom) x 48 half-hour cells. Cell classes come from the
-provider's own legend:
+A day under outages also carries a `table.gpv-table`: 12 rows (черга.підчерга,
+top to bottom) x 48 half-hour `<td>` cells. Each cell's `class` attribute carries
+several tokens (e.g. `gpv-c gpv-s1 gpv-h gpv-past`); the one that matters is
+`gpv-sN`, from the provider's own legend:
 
-    light_1  "Увімкнено", електроенергія наявна
-    light_2  "Вимкнено", електроенергія відсутня
-    light_3  Час, необхідний для перемикань. Електроенергії може не бути
+    gpv-s1  "Увімкнено", електроенергія наявна
+    gpv-s2  "Вимкнено", електроенергія відсутня
+    gpv-s3  Час, необхідний для перемикань. Електроенергії може не бути
 
-`light_3` is the switching half-hour that bookends an outage — the provider
+`gpv-s3` is the switching half-hour that bookends an outage — the provider
 states the cut happens within 0.5h of the queue start and power returns in the
 last 0.5h, so a published range covers the switching cells too. We therefore
-merge `light_2` and `light_3` runs into one outage range, which reproduces the
+merge `gpv-s2` and `gpv-s3` runs into one outage range, which reproduces the
 ranges the provider publishes in text.
+
+(An older markup generation used a bare `light_1`/`light_2`/`light_3` class on
+`table.turnoff-scheduleui-table`; the provider switched to the `gpv-*` scheme
+on 2026-10-27.)
 """
 
 import html as html_mod
@@ -66,8 +71,8 @@ UA_MONTHS = {
 ROWS = 12          # 6 черг x 2 підчерги
 CELLS_PER_ROW = 48  # half-hour slots
 
-CELL_ON = "light_1"
-OUTAGE_CLASSES = ("light_2", "light_3")
+CELL_ON = "gpv-s1"
+OUTAGE_CLASSES = ("gpv-s2", "gpv-s3")
 
 BLOCK_MARKER = '<div class="gpvinfodetail"'
 
@@ -81,7 +86,7 @@ DATE_RE = re.compile(r"(\d{1,2})\s+(" + "|".join(UA_MONTHS) + r")\s+(\d{4})")
 STAMP_DIV_RE = re.compile(r"text-align:\s*end[^>]*>([^<]+)<", re.IGNORECASE)
 TBODY_RE = re.compile(r"<tbody[^>]*>(.*?)</tbody>", re.DOTALL | re.IGNORECASE)
 ROW_RE = re.compile(r"<tr[^>]*>(.*?)</tr>", re.DOTALL | re.IGNORECASE)
-CELL_RE = re.compile(r'<td[^>]*class="(light_[123])"', re.IGNORECASE)
+CELL_RE = re.compile(r'<td\b[^>]*class="[^"]*\b(gpv-s[123])\b', re.IGNORECASE)
 
 
 class PoeParseError(Exception):
@@ -166,6 +171,12 @@ def _parse_intro(block: str) -> list[list[tuple[str, bool]]]:
     queue count — and the picture we draw reproduces that.
     """
     head = block.split("<table", 1)[0]
+    # The newer markup appends an inline <style> block plus a "Зараз ..." status
+    # box (legend, toggle button) right before the table — none of it is the
+    # "обсяг черг" preamble, so drop everything from <style> on.
+    style_idx = head.find("<style")
+    if style_idx != -1:
+        head = head[:style_idx]
     head = re.sub(r"<p\b.*?</p>", "", head, flags=re.DOTALL)  # the caption, drawn separately
     head = re.sub(r"<div\b[^>]*>|</div>", "", head)
 

@@ -13,9 +13,9 @@ from poe_source import (
 
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures")
 
-ON = "light_1"
-OFF = "light_2"
-SWITCH = "light_3"
+ON = "gpv-s1"
+OFF = "gpv-s2"
+SWITCH = "gpv-s3"
 
 
 def _slot_time_index(time_str: str) -> int:
@@ -154,7 +154,7 @@ class TestParseFailures:
 
     def test_truncated_grid_raises_instead_of_reporting_false_uptime(self):
         html = fixture("gpv_outage_day.html").replace(
-            '<td class="light_2">&nbsp</td>', "", 1
+            '<td class="gpv-c gpv-s2">&nbsp</td>', "", 1
         )
         with pytest.raises(PoeParseError):
             parse_response(html)
