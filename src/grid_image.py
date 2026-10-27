@@ -392,12 +392,13 @@ def render(schedule: dict, stamp: str, intro: list | None = None,
     for hour in range(24):
         x0 = GRID_X + hour * 2 * PITCH_X
         x1 = x0 + 2 * PITCH_X
+        # The site writes the last header as "23–24", not "23–00"
+        hour_label = f"{hour:02d}–{24 if hour == 23 else hour + 1:02d}"
         if hour == now_hour:
             d.rectangle([x0, top, x1 - 1, top + HDR_HOUR_H - 1], fill=NOW_BG)
-            _centre(d, x0, x1, top + HDR_HOUR_H / 2, f"{hour:02d}–{(hour + 1) % 24:02d}",
-                    reg, fill=NOW_TEXT)
+            _centre(d, x0, x1, top + HDR_HOUR_H / 2, hour_label, reg, fill=NOW_TEXT)
         else:
-            _centre(d, x0, x1, top + HDR_HOUR_H / 2, f"{hour:02d}–{(hour + 1) % 24:02d}", reg)
+            _centre(d, x0, x1, top + HDR_HOUR_H / 2, hour_label, reg)
         for half, half_label in enumerate(("00", "30")):
             hx0 = x0 + half * PITCH_X
             _centre(d, hx0, hx0 + PITCH_X, top + HDR_HOUR_H + HDR_HALF_H / 2, half_label, reg,
