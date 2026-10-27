@@ -145,20 +145,6 @@ def _slot(time_str: str) -> int:
     return int(time_str[:2]) * 2 + (time_str[3:] == "30")
 
 
-def _minutes(time_str: str) -> int:
-    h, m = time_str.split(":")
-    return int(h) * 60 + int(m)
-
-
-def _range_end_minutes(end: str) -> int:
-    return 1440 if end == "00:00" else _minutes(end)
-
-
-def _is_off(ranges: list[dict], now_minutes: int) -> bool:
-    return any(_minutes(r["start"]) <= now_minutes < _range_end_minutes(r["end"])
-               for r in ranges)
-
-
 def _fmt_period(r: dict) -> str:
     # The site writes a midnight-ending range as "...–24:00", not "–00:00"
     end = "24:00" if r["end"] == "00:00" else r["end"]
@@ -195,13 +181,29 @@ def _row_cells(ranges: list[dict], painted: str | None = None) -> list[tuple]:
     return cells
 
 
-def _table_top(intro, now_minutes=None) -> int:
+def _now_status(schedule: dict, cells: dict | None, now_minutes: int):
+    """Which queues are on, off, or in the switching window right now.
+
+    Reads the same per-slot colour `render` paints the grid with — the
+    provider's own painted cell when there is one, the reconstruction from
+    ranges otherwise — so this always agrees with what the picture shows.
+    """
+    slot = now_minutes // 30
+    on, off, switching = [], [], []
+    for label, ranges in schedule.items():
+        colour = _row_cells(ranges, (cells or {}).get(label))[slot]
+        bucket = switching if colour == SW else off if colour == OFF else on
+        bucket.append(label)
+    return on, off, switching
+
+
+def _table_top(intro, now_minutes=None, now_box_lines=3) -> int:
     """Where the table header starts, after intro/caption/status-box/legend."""
     if not intro:
         return TABLE_TOP_BARE
     y = INTRO_TOP + (len(intro) - 1) * INTRO_PITCH + CAPTION_GAP
     if now_minutes is not None:
-        y += NOW_BOX_GAP + NOW_BOX_PAD_TOP + 2 * INTRO_PITCH + NOW_BOX_PAD_BOTTOM
+        y += NOW_BOX_GAP + NOW_BOX_PAD_TOP + (now_box_lines - 1) * INTRO_PITCH + NOW_BOX_PAD_BOTTOM
     y += LEGEND_GAP + 14  # one legend row
     return int(y + TABLE_GAP)
 
@@ -242,12 +244,17 @@ def render(schedule: dict, stamp: str, intro: list | None = None,
     that has not started yet — the picture then looks exactly like the site
     shows it for that day: no status box, no line, nothing dimmed.
     """
-    off_now = ({label: _is_off(ranges, now_minutes) for label, ranges in schedule.items()}
-               if now_minutes is not None else {})
+    if now_minutes is not None:
+        on_labels, off_labels, switching_labels = _now_status(schedule, cells, now_minutes)
+    else:
+        on_labels, off_labels, switching_labels = [], [], []
+    # row labels and the periods list flag anything not reliably on
+    off_now = {q: True for q in off_labels + switching_labels}
+    now_box_lines = 3 + (1 if switching_labels else 0)
 
-    top = _table_top(intro, now_minutes)
+    top = _table_top(intro, now_minutes, now_box_lines)
     grid_y = top + HDR_HOUR_H + HDR_HALF_H
-    grid_b = grid_y + 12 * PITCH_Y
+    grid_b = grid_y + 13 * PITCH_Y  # the 12 queues, plus the site's own trailing blank row
     periods_top = grid_b + 20
     periods_rows = -(-12 // 4)  # 4 columns
     note_y = periods_top + 16 + periods_rows * 20 + 16
@@ -271,11 +278,9 @@ def render(schedule: dict, stamp: str, intro: list | None = None,
         if now_minutes is not None:
             box_top = y + NOW_BOX_GAP
             ty = box_top + NOW_BOX_PAD_TOP
-            box_bottom = ty + 2 * INTRO_PITCH + NOW_BOX_PAD_BOTTOM
+            box_bottom = ty + (now_box_lines - 1) * INTRO_PITCH + NOW_BOX_PAD_BOTTOM
             d.rectangle([TBL_L, box_top, GRID_R, box_bottom], fill=NOW_BG)
             d.rectangle([TBL_L, box_top, TBL_L + NOW_BAR_W, box_bottom], fill=BLUE)
-            on_labels = [q for q in schedule if not off_now.get(q)]
-            off_labels = [q for q in schedule if off_now.get(q)]
             slot_start = f"{now_minutes // 60:02d}:{'30' if now_minutes % 60 >= 30 else '00'}"
             slot_end_m = (now_minutes // 30 + 1) * 30
             slot_end = f"{(slot_end_m // 60) % 24:02d}:{slot_end_m % 60:02d}"
@@ -288,6 +293,11 @@ def render(schedule: dict, stamp: str, intro: list | None = None,
             ty += INTRO_PITCH
             _runs(d, NOW_BOX_TEXT_X, ty,
                   [("«Вимкнено», електроенергія відсутня: ", False), (", ".join(off_labels), True)])
+            if switching_labels:
+                ty += INTRO_PITCH
+                _runs(d, NOW_BOX_TEXT_X, ty,
+                      [("Час, необхідний для перемикань. Електроенергії може не бути: ", False),
+                       (", ".join(switching_labels), True)])
             y = box_bottom
 
         legend_y = y + LEGEND_GAP + 7
@@ -313,9 +323,9 @@ def render(schedule: dict, stamp: str, intro: list | None = None,
         if hour == now_hour:
             d.rectangle([x0, top, x1 - 1, top + HDR_HOUR_H - 1], fill=NOW_BG)
             _centre(d, x0, x1, top + HDR_HOUR_H / 2, f"{hour:02d}–{(hour + 1) % 24:02d}",
-                    bold, fill=NOW_TEXT)
+                    reg, fill=NOW_TEXT)
         else:
-            _centre(d, x0, x1, top + HDR_HOUR_H / 2, f"{hour:02d}–{(hour + 1) % 24:02d}", bold)
+            _centre(d, x0, x1, top + HDR_HOUR_H / 2, f"{hour:02d}–{(hour + 1) % 24:02d}", reg)
         for half, half_label in enumerate(("00", "30")):
             hx0 = x0 + half * PITCH_X
             _centre(d, hx0, hx0 + PITCH_X, top + HDR_HOUR_H + HDR_HALF_H / 2, half_label, reg,
@@ -325,7 +335,7 @@ def render(schedule: dict, stamp: str, intro: list | None = None,
 
     d.rectangle([TBL_L - 1, top, LABEL_R, grid_y - 1], fill=HDR_BG)
     d.line([LABEL_R, top, LABEL_R, grid_b - 1], fill=LABEL_BORDER)
-    _centre(d, TBL_L, LABEL_R, (top + grid_y) / 2 - 1, "Черга", bold)
+    _centre(d, TBL_L, LABEL_R, (top + grid_y) / 2 - 1, "Черга", reg)
 
     # Header/body boundary — the darker "gpv-first" line, not the generic one
     d.line([TBL_L - 1, grid_y - 1, GRID_R, grid_y - 1], fill=LABEL_BORDER)
@@ -338,6 +348,9 @@ def render(schedule: dict, stamp: str, intro: list | None = None,
         d.rectangle([TBL_L - 1, y0, LABEL_R - 1, y0 + PITCH_Y - 1], fill=WHITE)
         _centre(d, TBL_L, LABEL_R, y0 + PITCH_Y / 2, label, bold,
                 fill=ACTIVE_RED if is_off else TEXT)
+        # the label column's own divider is a plain visible grey, every row —
+        # unlike the grid cells, .gpv-q never gets the near-invisible override
+        d.line([TBL_L - 1, y0 + PITCH_Y - 1, LABEL_R - 1, y0 + PITCH_Y - 1], fill=GEN_BORDER)
 
         row_cells = _row_cells(schedule.get(label, []), (cells or {}).get(label))
         bottom_y = y0 + CELL_H - 1
@@ -352,6 +365,11 @@ def render(schedule: dict, stamp: str, intro: list | None = None,
             d.line([x, bottom_y, x + CELL_W - 1, bottom_y], fill=_lighten(colour))
         if sub == 1 and row:  # queue-pair boundary: "1.2 | 2.1", not "1.1 | 1.2"
             d.line([TBL_L - 1, y0, GRID_R, y0], fill=LABEL_BORDER)
+
+    # The site always leaves one trailing blank row below 6.2, same height,
+    # label column and grid both plain white
+    blank_y0 = grid_y + 12 * PITCH_Y
+    d.rectangle([TBL_L - 1, blank_y0, GRID_R, grid_b - 1], fill=WHITE)
 
     for hour in range(1, 24):  # hour boundary, spanning header + body together
         x = GRID_X + hour * 2 * PITCH_X
