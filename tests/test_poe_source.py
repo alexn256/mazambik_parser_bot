@@ -5,6 +5,8 @@ import pytest
 from poe_source import (
     PoeParseError,
     _cells_to_ranges,
+    _parse_now_info,
+    _parse_periods,
     _queue_label,
     _slot_time,
     has_outages,
@@ -123,6 +125,84 @@ class TestParseOutageDay:
     def test_a_quiet_day_has_no_cells(self):
         day = parse_response(fixture("gpv_no_outages.html"))[0]
         assert day["cells"] == {}
+
+    def test_a_pre_redesign_fixture_has_no_live_status(self, outage_day):
+        # This fixture predates the gpv-now-info/gpv-periods markup entirely
+        assert outage_day["now"] is None
+        assert outage_day["periods"] == {}
+
+
+class TestParseNowInfo:
+    """The "Зараз ..." status box — the site's own live state, not ours."""
+
+    BLOCK = (
+        '<div class="gpv-now-info"><b>Зараз 17:29</b> (інтервал 17:00–17:30)<br>'
+        '«Увімкнено», електроенергія наявна: <b>1.1, 1.2, 4.2, 5.1, 5.2, 6.1, 6.2</b><br>'
+        '«Вимкнено», електроенергія відсутня: <b>2.1, 2.2, 3.1, 3.2, 4.1</b></div>'
+        '<span class="gpv-line" style="left:97%">'
+    )
+
+    def test_time_and_interval(self):
+        now = _parse_now_info(self.BLOCK)
+        assert now["time"] == "17:29"
+        assert now["interval"] == ("17:00", "17:30")
+
+    def test_on_off_lists_preserve_the_sites_own_order(self):
+        now = _parse_now_info(self.BLOCK)
+        assert now["on"] == ["1.1", "1.2", "4.2", "5.1", "5.2", "6.1", "6.2"]
+        assert now["off"] == ["2.1", "2.2", "3.1", "3.2", "4.1"]
+
+    def test_no_switching_queues_is_an_empty_list_not_missing(self):
+        now = _parse_now_info(self.BLOCK)
+        assert now["switching"] == []
+
+    def test_line_position_is_the_sites_own_percentage(self):
+        now = _parse_now_info(self.BLOCK)
+        assert now["line_pct"] == 97
+
+    def test_switching_queues_get_their_own_list(self):
+        block = self.BLOCK.replace(
+            "</div>",
+            "<br>Час, необхідний для перемикань. Електроенергії може не бути: "
+            "<b>2.1</b></div>",
+            1,
+        )
+        now = _parse_now_info(block)
+        assert now["switching"] == ["2.1"]
+
+    def test_a_day_without_the_div_has_no_now_info(self):
+        assert _parse_now_info("<div>nothing live here</div>") is None
+
+
+class TestParsePeriods:
+    """The "Періоди відключень за чергами" list — always present, live or not."""
+
+    BLOCK = (
+        '<ul class="gpv-periods">'
+        '<li><b>1.1</b> — <span>08:00–09:30</span>, <span>14:00–16:00</span></li>'
+        '<li class="gpv-active"><b>2.1</b> — <span>09:00–10:30</span></li>'
+        '<li><b>4.1</b> — <span>23:00–24:00</span></li>'
+        "</ul>"
+    )
+
+    def test_ranges_are_parsed_per_queue(self):
+        periods = _parse_periods(self.BLOCK)
+        assert periods["1.1"]["ranges"] == [
+            {"start": "08:00", "end": "09:30"}, {"start": "14:00", "end": "16:00"},
+        ]
+
+    def test_active_flag_follows_the_sites_own_class(self):
+        periods = _parse_periods(self.BLOCK)
+        assert periods["2.1"]["active"] is True
+        assert periods["1.1"]["active"] is False
+
+    def test_a_midnight_ending_range_is_stored_as_00_00(self):
+        # Matches `schedule`'s own convention so _fmt_period can treat both the same
+        periods = _parse_periods(self.BLOCK)
+        assert periods["4.1"]["ranges"] == [{"start": "23:00", "end": "00:00"}]
+
+    def test_no_list_is_an_empty_dict(self):
+        assert _parse_periods("<div>no periods here</div>") == {}
 
 
 class TestParseQuietDays:

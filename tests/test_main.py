@@ -598,7 +598,7 @@ class TestGridPictureStamp:
     def stamps(self, monkeypatch, photos):
         seen = []
 
-        def capturing_render(schedule, stamp, intro=None, cells=None):
+        def capturing_render(schedule, stamp, intro=None, cells=None, *, now=None, periods=None):
             seen.append(stamp)
             return b"\x89PNG-fake"
 
@@ -634,7 +634,7 @@ class TestPictureCache:
     def renders(self, monkeypatch, photos):
         calls = []
 
-        def counting_render(schedule, stamp, intro=None, cells=None):
+        def counting_render(schedule, stamp, intro=None, cells=None, *, now=None, periods=None):
             calls.append(stamp)
             return b"\x89PNG-fake"
 

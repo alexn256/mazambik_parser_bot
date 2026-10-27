@@ -88,6 +88,24 @@ TBODY_RE = re.compile(r"<tbody[^>]*>(.*?)</tbody>", re.DOTALL | re.IGNORECASE)
 ROW_RE = re.compile(r"<tr[^>]*>(.*?)</tr>", re.DOTALL | re.IGNORECASE)
 CELL_RE = re.compile(r'<td\b[^>]*class="[^"]*\b(gpv-s[123])\b', re.IGNORECASE)
 
+# The "Зараз HH:MM (інтервал HH:MM-HH:MM)" status box the site only prints for
+# whichever day block covers the current moment — see `_parse_now_info`.
+NOW_DIV_RE = re.compile(r'<div class="gpv-now-info">(.*?)</div>', re.DOTALL)
+NOW_TIME_RE = re.compile(r"Зараз\s*(\d{2}:\d{2})")
+NOW_INTERVAL_RE = re.compile(r"інтервал\s*(\d{2}:\d{2})\s*[-–—]\s*(\d{2}:\d{2})")
+NOW_ON_RE = re.compile(r"«Увімкнено»[^:<]*:\s*<b>([^<]*)</b>")
+NOW_OFF_RE = re.compile(r"«Вимкнено»[^:<]*:\s*<b>([^<]*)</b>")
+NOW_SWITCH_RE = re.compile(r"Час, необхідний[^:<]*:\s*<b>([^<]*)</b>")
+LINE_PCT_RE = re.compile(r'class="gpv-line"\s+style="left:(\d+)%"')
+
+# "Періоди відключень за чергами": a per-queue summary the site always prints,
+# today or not — see `_parse_periods`.
+PERIODS_UL_RE = re.compile(r'<ul class="gpv-periods">(.*?)</ul>', re.DOTALL)
+PERIODS_LI_RE = re.compile(
+    r'<li( class="[^"]*")?>\s*<b>([\d.]+)</b>\s*[-–—]\s*(.*?)</li>', re.DOTALL
+)
+PERIODS_RANGE_RE = re.compile(r"(\d{2}:\d{2})\s*[-–—]\s*(\d{2}:\d{2}|24:00)")
+
 
 class PoeParseError(Exception):
     """The response did not look like a schedule we know how to read."""
@@ -195,6 +213,59 @@ def _parse_intro(block: str) -> list[list[tuple[str, bool]]]:
     return lines
 
 
+def _parse_now_info(block: str) -> dict | None:
+    """The live "Зараз ..." status box, already computed server-side.
+
+    Only the day block covering the actual current moment carries this div —
+    other days (tomorrow before it starts, any day in the past) simply don't
+    have one, which is how the bot knows not to draw live state for them.
+    Everything here is the site's own number, not ours: which queues are on,
+    off or mid-switch right now, and exactly where its current-time line
+    sits (`line_pct`, 0-100, position inside the current half-hour cell) —
+    nothing is computed from this machine's clock.
+    """
+    div = NOW_DIV_RE.search(block)
+    if not div:
+        return None
+    text = div.group(1)
+    time_match = NOW_TIME_RE.search(text)
+    interval_match = NOW_INTERVAL_RE.search(text)
+    if not time_match or not interval_match:
+        return None
+
+    def _labels(pattern: re.Pattern) -> list[str]:
+        m = pattern.search(text)
+        return [s.strip() for s in m.group(1).split(",") if s.strip()] if m else []
+
+    line_match = LINE_PCT_RE.search(block)
+    return {
+        "time": time_match.group(1),
+        "interval": (interval_match.group(1), interval_match.group(2)),
+        "on": _labels(NOW_ON_RE),
+        "off": _labels(NOW_OFF_RE),
+        "switching": _labels(NOW_SWITCH_RE),
+        "line_pct": int(line_match.group(1)) if line_match else 0,
+    }
+
+
+def _parse_periods(block: str) -> dict[str, dict]:
+    """The "Періоди відключень за чергами" list: the site's own per-queue
+    summary, not derived from our own merged `schedule` ranges — its ranges
+    exclude the switching half-hour `schedule` folds in, so the two disagree
+    by design and the picture must read this one, not recompute it."""
+    ul = PERIODS_UL_RE.search(block)
+    if not ul:
+        return {}
+    out = {}
+    for li_class, label, body in PERIODS_LI_RE.findall(ul.group(1)):
+        ranges = [
+            {"start": start, "end": "00:00" if end == "24:00" else end}
+            for start, end in PERIODS_RANGE_RE.findall(body)
+        ]
+        out[label] = {"ranges": ranges, "active": "gpv-active" in (li_class or "")}
+    return out
+
+
 def _parse_day(block: str) -> dict:
     """Parse one `gpvinfodetail` block into the shape the bot pipeline expects."""
     match = DATE_RE.search(block)
@@ -219,6 +290,8 @@ def _parse_day(block: str) -> dict:
         },
         "has_grid": schedule is not None,
         "source": "poe.pl.ua",
+        "now": _parse_now_info(block) if schedule is not None else None,
+        "periods": _parse_periods(block) if schedule is not None else {},
     }
 
 

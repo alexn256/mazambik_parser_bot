@@ -12,12 +12,15 @@ that table rather than as a chart of our own.
 
 The provider redesigned the page on 2026-10-27: a two-row hour header instead
 of the old four-row one, a colour legend, a "Зараз ..." status box above the
-table, and a "Періоди відключень за чергами" list below it. Four of those five
-additions are live — which queues are off right now, the current-time line,
-the dimmed-past-hours look, and the highlighted current hour — so `render`
-takes an optional `now_minutes` and the caller must re-render (never reuse a
-cached picture) for a schedule that covers today, exactly like the site
-recomputes them on every page load.
+table, and a "Періоди відключень за чергами" list below it. The live parts —
+which queues are off right now, the current-time line, the dimmed-past-hours
+look, the highlighted current hour — are never computed from this machine's
+clock. `poe_source._parse_now_info` reads them straight out of the site's own
+response (it already did the work, correctly, in its own timezone) and
+`render` only draws what it is given via `now`. A day the current moment
+doesn't fall in simply has no such div in the response, so `now` is None and
+none of that gets drawn — exactly how the site itself leaves a future or past
+day's block alone.
 """
 
 import io
@@ -181,28 +184,12 @@ def _row_cells(ranges: list[dict], painted: str | None = None) -> list[tuple]:
     return cells
 
 
-def _now_status(schedule: dict, cells: dict | None, now_minutes: int):
-    """Which queues are on, off, or in the switching window right now.
-
-    Reads the same per-slot colour `render` paints the grid with — the
-    provider's own painted cell when there is one, the reconstruction from
-    ranges otherwise — so this always agrees with what the picture shows.
-    """
-    slot = now_minutes // 30
-    on, off, switching = [], [], []
-    for label, ranges in schedule.items():
-        colour = _row_cells(ranges, (cells or {}).get(label))[slot]
-        bucket = switching if colour == SW else off if colour == OFF else on
-        bucket.append(label)
-    return on, off, switching
-
-
-def _table_top(intro, now_minutes=None, now_box_lines=3) -> int:
+def _table_top(intro, live=False, now_box_lines=3) -> int:
     """Where the table header starts, after intro/caption/status-box/legend."""
     if not intro:
         return TABLE_TOP_BARE
     y = INTRO_TOP + (len(intro) - 1) * INTRO_PITCH + CAPTION_GAP
-    if now_minutes is not None:
+    if live:
         y += NOW_BOX_GAP + NOW_BOX_PAD_TOP + (now_box_lines - 1) * INTRO_PITCH + NOW_BOX_PAD_BOTTOM
     y += LEGEND_GAP + 14  # one legend row
     return int(y + TABLE_GAP)
@@ -211,7 +198,7 @@ def _table_top(intro, now_minutes=None, now_box_lines=3) -> int:
 LEGEND_SWATCH_W = 16  # the site's own .gpv-legend i{width:16px}
 
 
-def _legend_items(now_minutes) -> list[tuple]:
+def _legend_items(live: bool) -> list[tuple]:
     """(colour, text, swatch_width, bordered) per legend entry.
 
     Every swatch is a 16px bordered square except "Поточний час", which the
@@ -224,36 +211,47 @@ def _legend_items(now_minutes) -> list[tuple]:
         (SW, "Час, необхідний для перемикань. Електроенергії може не бути",
          LEGEND_SWATCH_W, True),
     ]
-    if now_minutes is not None:
+    if live:
         items.append((BLUE, "Поточний час", 3, False))
         items.append((_dim(ON), "Час, що минув", LEGEND_SWATCH_W, True))
     return items
 
 
 def render(schedule: dict, stamp: str, intro: list | None = None,
-           cells: dict | None = None, *, now_minutes: int | None = None) -> Image.Image:
+           cells: dict | None = None, *, now: dict | None = None,
+           periods: dict | None = None) -> Image.Image:
     """Draw the grid.
 
     `intro` is the provider's preamble as lines of runs. `cells` are the
     provider's painted half-hours per queue, used verbatim when present.
 
-    `now_minutes` (0-1439) draws the live parts the site only shows for today:
-    the "Зараз ..." status box, a highlighted current hour, a blue line at the
-    exact minute, and already-elapsed cells dimmed. Pass None for a day the
-    current moment does not fall in — a schedule that already ended, or one
-    that has not started yet — the picture then looks exactly like the site
-    shows it for that day: no status box, no line, nothing dimmed.
+    `now` is `poe_source._parse_now_info`'s result, or None for a day the
+    current moment does not fall in (already ended, or not started yet) — the
+    picture then looks exactly like the site shows it for that day: no status
+    box, no current-time line, nothing dimmed. Everything live-looking is the
+    site's own figure, not computed here: which queues are on, off or
+    switching, and exactly where the line sits within its half-hour cell.
+
+    `periods` is `poe_source._parse_periods`'s result — the site's own
+    "Періоди відключень" ranges and which queues are `gpv-active` (off) right
+    now. When it is None (a schedule recognised from a screenshot has no page
+    to read this from), both fall back to `schedule`'s own merged ranges,
+    with no queue marked active since there is no "now" to judge it against.
     """
-    if now_minutes is not None:
-        on_labels, off_labels, switching_labels = _now_status(schedule, cells, now_minutes)
-    else:
-        on_labels, off_labels, switching_labels = [], [], []
-    # row labels and the periods list turn red only for a queue the current-time
-    # line crosses while it is strictly off (gpv-active) — not the switching one
-    off_now = {q: True for q in off_labels}
+    live = now is not None
+    now_slot = _slot(now["interval"][0]) if live else None
+    line_frac = (now_slot + now["line_pct"] / 100) if live else None
+    now_hour = int(now["interval"][0][:2]) if live else None
+    on_labels = now["on"] if live else []
+    off_labels = now["off"] if live else []
+    switching_labels = now["switching"] if live else []
     now_box_lines = 3 + (1 if switching_labels else 0)
 
-    top = _table_top(intro, now_minutes, now_box_lines)
+    # row labels and the periods list turn red only for a queue the site
+    # itself currently marks gpv-active (strictly off, not mid-switch)
+    off_now = {label: info["active"] for label, info in (periods or {}).items()}
+
+    top = _table_top(intro, live, now_box_lines)
     grid_y = top + HDR_HOUR_H + HDR_HALF_H
     grid_b = grid_y + 13 * PITCH_Y  # the 12 queues, plus the site's own trailing blank row
     periods_top = grid_b + 20
@@ -276,18 +274,16 @@ def render(schedule: dict, stamp: str, intro: list | None = None,
         _centre(d, TBL_L, GRID_R, caption_y, CAPTION_TEXT, _font("Bold", 13))
         y = caption_y
 
-        if now_minutes is not None:
+        if live:
             box_top = y + NOW_BOX_GAP
             ty = box_top + NOW_BOX_PAD_TOP
             box_bottom = ty + (now_box_lines - 1) * INTRO_PITCH + NOW_BOX_PAD_BOTTOM
             d.rectangle([TBL_L, box_top, GRID_R, box_bottom], fill=NOW_BG)
             d.rectangle([TBL_L, box_top, TBL_L + NOW_BAR_W, box_bottom], fill=BLUE)
-            slot_start = f"{now_minutes // 60:02d}:{'30' if now_minutes % 60 >= 30 else '00'}"
-            slot_end_m = (now_minutes // 30 + 1) * 30
-            slot_end = f"{(slot_end_m // 60) % 24:02d}:{slot_end_m % 60:02d}"
-            now_txt = f"{now_minutes // 60:02d}:{now_minutes % 60:02d}"
+            interval_start, interval_end = now["interval"]
             _runs(d, NOW_BOX_TEXT_X, ty,
-                  [(f"Зараз {now_txt}", True), (f" (інтервал {slot_start}–{slot_end})", False)])
+                  [(f"Зараз {now['time']}", True),
+                   (f" (інтервал {interval_start}–{interval_end})", False)])
             ty += INTRO_PITCH
             _runs(d, NOW_BOX_TEXT_X, ty,
                   [("«Увімкнено», електроенергія наявна: ", False), (", ".join(on_labels), True)])
@@ -303,7 +299,7 @@ def render(schedule: dict, stamp: str, intro: list | None = None,
 
         legend_y = y + LEGEND_GAP + 7
         lx = INTRO_X
-        for colour, text, swatch_w, bordered in _legend_items(now_minutes):
+        for colour, text, swatch_w, bordered in _legend_items(live):
             d.rectangle([lx, legend_y - 6, lx + swatch_w, legend_y + 6], fill=colour,
                         outline=HOUR_BORDER if bordered else None)
             lx += swatch_w + 6
@@ -317,7 +313,6 @@ def render(schedule: dict, stamp: str, intro: list | None = None,
     d.rectangle([TBL_L - 1, top, GRID_R, grid_y - 1], fill=HDR_BG)
     d.line([TBL_L - 1, top + HDR_HOUR_H, GRID_R, top + HDR_HOUR_H], fill=GEN_BORDER)
 
-    now_hour = now_minutes // 60 if now_minutes is not None else None
     for hour in range(24):
         x0 = GRID_X + hour * 2 * PITCH_X
         x1 = x0 + 2 * PITCH_X
@@ -357,19 +352,17 @@ def render(schedule: dict, stamp: str, intro: list | None = None,
         bottom_y = y0 + CELL_H - 1
         for i, colour in enumerate(row_cells):
             x = GRID_X + i * PITCH_X
-            if now_minutes is not None and i < now_minutes // 30:
+            if live and i < now_slot:
                 colour = _dim(colour)
             d.rectangle([x, y0, x + CELL_W - 1, y0 + CELL_H - 1], fill=colour)
             if i % 2:  # the half-hour mark inside this hour: a dashed divider
                 _dashed_vline(d, x, y0, y0 + CELL_H, _darken(colour))
 
-        if now_minutes is not None:
+        if live:
             # The site's own <span class="gpv-line"> sits inside each cell, not
             # as one continuous overlay — so every row's own seam still shows
             # through it, and it never reaches into the trailing blank row.
-            slot = now_minutes // 30
-            frac = (now_minutes % 30) / 30
-            line_x = GRID_X + (slot + frac) * PITCH_X
+            line_x = GRID_X + line_frac * PITCH_X
             d.rectangle([line_x - 2, y0, line_x + 2, y0 + CELL_H - 1], fill=WHITE)  # box-shadow halo
             d.rectangle([line_x - 1, y0, line_x + 1, y0 + CELL_H - 1], fill=BLUE)
 
@@ -377,7 +370,7 @@ def render(schedule: dict, stamp: str, intro: list | None = None,
         # drawn last so it still cuts across the current-time line too
         for i, colour in enumerate(row_cells):
             x = GRID_X + i * PITCH_X
-            if now_minutes is not None and i < now_minutes // 30:
+            if live and i < now_slot:
                 colour = _dim(colour)
             d.line([x, bottom_y, x + CELL_W - 1, bottom_y], fill=_lighten(colour))
         if sub == 1 and row:  # queue-pair boundary: "1.2 | 2.1", not "1.1 | 1.2"
@@ -406,11 +399,13 @@ def render(schedule: dict, stamp: str, intro: list | None = None,
         px = TBL_L + col * col_w
         py = periods_top + 16 + line_row * 20
         colour = ACTIVE_RED if off_now.get(label) else TEXT
+        label_ranges = periods[label]["ranges"] if periods and label in periods \
+            else schedule.get(label, [])
         d.text((px, py), label, font=_font("Bold", 11), fill=colour, anchor="lm")
         px += d.textlength(label, font=_font("Bold", 11)) + 5
         d.text((px, py), "—", font=body_font, fill=TEXT, anchor="lm")
         px += d.textlength("— ", font=body_font)
-        ranges_txt = ", ".join(_fmt_period(r) for r in schedule.get(label, []))
+        ranges_txt = ", ".join(_fmt_period(r) for r in label_ranges)
         d.text((px, py), ranges_txt or "—", font=body_font, fill=TEXT, anchor="lm")
         underline_y = py + 10
         d.line([TBL_L + col * col_w, underline_y, TBL_L + (col + 1) * col_w - 16, underline_y],
@@ -422,7 +417,8 @@ def render(schedule: dict, stamp: str, intro: list | None = None,
 
 
 def render_png(schedule: dict, stamp: str, intro: list | None = None,
-               cells: dict | None = None, *, now_minutes: int | None = None) -> bytes | None:
+               cells: dict | None = None, *, now: dict | None = None,
+               periods: dict | None = None) -> bytes | None:
     """Grid as PNG bytes, or None if it could not be drawn.
 
     Never raises: a schedule is worth sending as plain text even when the
@@ -430,7 +426,7 @@ def render_png(schedule: dict, stamp: str, intro: list | None = None,
     """
     try:
         buf = io.BytesIO()
-        render(schedule, stamp, intro, cells, now_minutes=now_minutes).save(
+        render(schedule, stamp, intro, cells, now=now, periods=periods).save(
             buf, format="PNG", optimize=True)
         return buf.getvalue()
     except FontsMissing:

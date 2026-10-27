@@ -122,6 +122,54 @@ class TestLayout:
         assert cell_colour(bare, 0, 16) == OFF
 
 
+class TestLiveStatus:
+    """Live state comes from the site's own response (poe_source's `now`),
+    never computed from this machine's clock — see `_parse_now_info`."""
+
+    NOW = {"time": "12:15", "interval": ("12:00", "12:30"),
+           "on": ["1.2"], "off": ["1.1"], "switching": [], "line_pct": 50}
+    INTRO = [[("a", False)]]
+
+    def test_static_legend_has_three_items(self):
+        assert len(grid_image._legend_items(False)) == 3
+
+    def test_live_legend_adds_current_time_and_elapsed(self):
+        items = grid_image._legend_items(True)
+        assert len(items) == 5
+        _, text, swatch_w, bordered = items[3]
+        assert text == "Поточний час"
+        assert swatch_w == 3  # a bare sliver, not the 16px bordered square
+        assert bordered is False
+
+    def test_a_live_picture_is_taller_than_a_static_one(self):
+        static = render(ONE_OUTAGE, "x", intro=self.INTRO)
+        live = render(ONE_OUTAGE, "x", intro=self.INTRO, now=self.NOW)
+        assert live.height > static.height
+
+    def test_current_time_line_sits_at_the_sites_own_percentage(self):
+        # 12:00 is slot 24; line_pct=50 puts the line at its exact midpoint
+        img = render(ONE_OUTAGE, "x", intro=self.INTRO, now=self.NOW).convert("RGB")
+        top = grid_image._table_top(self.INTRO, True, 3)
+        grid_y = top + grid_image.HDR_HOUR_H + grid_image.HDR_HALF_H
+        line_x = round(GRID_X + 24.5 * PITCH_X)
+        assert img.getpixel((line_x, grid_y + 5)) == grid_image.BLUE
+
+    def test_no_now_means_no_line_and_the_static_height(self):
+        img = render(ONE_OUTAGE, "x", intro=self.INTRO).convert("RGB")
+        top = grid_image._table_top(self.INTRO, False)
+        grid_y = top + grid_image.HDR_HOUR_H + grid_image.HDR_HALF_H
+        line_x = round(GRID_X + 24.5 * PITCH_X)
+        assert img.getpixel((line_x, grid_y + 5)) != grid_image.BLUE
+
+    def test_periods_do_not_change_the_layout(self):
+        # Only the periods-list text reads `periods` — the grid still comes
+        # from `schedule`/`cells`, so passing it changes nothing geometric
+        periods = {"1.1": {"ranges": [{"start": "08:00", "end": "09:00"}], "active": True}}
+        plain = render(ONE_OUTAGE, "x")
+        with_periods = render(ONE_OUTAGE, "x", periods=periods)
+        assert plain.size == with_periods.size
+
+
 class TestRenderPng:
     def test_returns_a_png(self):
         png = render_png(ONE_OUTAGE, "10.04.2026 22:18")

@@ -83,6 +83,14 @@ def build_state(state: dict, parsed: dict) -> dict:
         # instead of inferring them from the collapsed ranges.
         "cells": parsed.get("cells") or {},
         "schedule": parsed["schedule"],
+        # The site's own live status (which queues are on/off/switching right
+        # now, the current-time line's position) and its own per-queue
+        # "Періоди відключень" ranges — both already computed server-side, in
+        # the site's own timezone. Only ever present for whichever date the
+        # provider itself considers "today" at poll time; stale by at most one
+        # polling interval for an on-demand request, same as everything else here.
+        "now": parsed.get("now"),
+        "periods": parsed.get("periods") or {},
         "update_count": update_count,
     }
 

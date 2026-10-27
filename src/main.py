@@ -242,36 +242,25 @@ _broadcast_lock = asyncio.Lock()
 _poe_down = not POE_SOURCE_ENABLED
 
 
-def _picture_key(schedule: dict, stamp: str, intro, cells) -> str:
-    payload = json.dumps([schedule, stamp, intro, cells],
+def _picture_key(schedule: dict, stamp: str, intro, cells, periods) -> str:
+    payload = json.dumps([schedule, stamp, intro, cells, periods],
                          sort_keys=True, ensure_ascii=False)
     return hashlib.sha1(payload.encode("utf-8")).hexdigest()
-
-
-def _now_minutes_for(date: str | None) -> int | None:
-    """Minutes since midnight, Kyiv time, if `date` is today — else None.
-
-    The picture only draws the "Зараз ..." box, the highlighted current hour,
-    the current-time line and the dimmed-past-hours look for the day the
-    current moment actually falls in, exactly like the site does.
-    """
-    now = datetime.now(UKRAINE_TZ)
-    if date != now.strftime("%d.%m.%Y"):
-        return None
-    return now.hour * 60 + now.minute
 
 
 def _grid_picture(parsed: dict) -> dict | None:
     """The provider's table as a picture, or None when there is nothing to draw.
 
-    For any day other than today, keyed by the drawing's own contents rather
-    than by date: an amended schedule cannot collide with the one it
-    replaced, and the same day asked for twice costs nothing the second time.
+    For any day the response carries no "now" status for, keyed by the
+    drawing's own contents rather than by date: an amended schedule cannot
+    collide with the one it replaced, and the same day asked for twice costs
+    nothing the second time.
 
-    Today's picture bakes in the current moment (status box, current-time
-    line, dimmed past hours), so it is never reused across calls — a second
-    request minutes or hours later must show where "now" actually is, not
-    where it was the first time this schedule was drawn.
+    A day with live status bakes in the current moment (status box,
+    current-time line, dimmed past hours) as the provider's own response
+    reported it, so it is never reused across calls — a second request
+    minutes later must show the state as of ITS OWN last poll, not the one
+    baked into a picture drawn from an earlier poll.
     """
     if not has_outages(parsed.get("schedule") or {}):
         return None
@@ -287,20 +276,21 @@ def _grid_picture(parsed: dict) -> dict | None:
     stamp = format_stamp_ua(updated_at or parsed.get("date"))
     intro = parsed.get("intro") or []
     cells = parsed.get("cells") or {}
+    now = parsed.get("now")
+    periods = parsed.get("periods") or {}
 
-    now_minutes = _now_minutes_for(parsed.get("date"))
-    if now_minutes is not None:
-        png = render_png(parsed["schedule"], stamp, intro, cells, now_minutes=now_minutes)
+    if now is not None:
+        png = render_png(parsed["schedule"], stamp, intro, cells, now=now, periods=periods)
         return {"png": png, "file_id": None} if png is not None else None
 
-    key = _picture_key(parsed["schedule"], stamp, intro, cells)
+    key = _picture_key(parsed["schedule"], stamp, intro, cells, periods)
 
     cached = _pictures.get(key)
     if cached:
         _pictures.move_to_end(key)
         return cached
 
-    png = render_png(parsed["schedule"], stamp, intro, cells)
+    png = render_png(parsed["schedule"], stamp, intro, cells, periods=periods)
     if png is None:
         return None
 
@@ -422,6 +412,8 @@ async def _send_day_schedule(chat_id: int, date: str, entry: dict, when: str) ->
         "intro": entry.get("intro"),
         "cells": entry.get("cells"),
         "schedule": entry["schedule"],
+        "now": entry.get("now"),
+        "periods": entry.get("periods"),
     }
 
     if not has_outages(parsed["schedule"]):
@@ -606,9 +598,15 @@ def _refresh_unchanged_day(state: dict, parsed: dict) -> None:
 
     updated_at = parsed.get("updated_at")
     cells = parsed.get("cells") or {}
+    now_val = parsed.get("now")
+    periods_val = parsed.get("periods") or {}
     stamp_moved = bool(updated_at) and entry.get("updated_at") != updated_at
     cells_moved = bool(cells) and entry.get("cells") != cells
-    if not stamp_moved and not cells_moved:
+    # The site's live status ticks every half-hour (at least) regardless of
+    # whether the ranges or the stamp changed — it has to keep up on its own.
+    now_moved = entry.get("now") != now_val
+    periods_moved = bool(periods_val) and entry.get("periods") != periods_val
+    if not (stamp_moved or cells_moved or now_moved or periods_moved):
         return
 
     if stamp_moved:
@@ -617,12 +615,17 @@ def _refresh_unchanged_day(state: dict, parsed: dict) -> None:
         entry["source"] = parsed.get("source")
     if cells_moved:
         entry["cells"] = cells
+    if now_moved:
+        entry["now"] = now_val
+    if periods_moved:
+        entry["periods"] = periods_val
 
     save_state(state, STATE_FILE_PATH)
     logger.info("%s refreshed: %s (ranges unchanged)", parsed["date"],
                 ", ".join(filter(None, [
                     f"stamp -> {updated_at}" if stamp_moved else None,
                     "repainted cells" if cells_moved else None,
+                    "now status" if now_moved else None,
                 ])))
 
 
