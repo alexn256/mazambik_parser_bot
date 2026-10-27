@@ -245,12 +245,30 @@ def _picture_key(schedule: dict, stamp: str, intro, cells) -> str:
     return hashlib.sha1(payload.encode("utf-8")).hexdigest()
 
 
+def _now_minutes_for(date: str | None) -> int | None:
+    """Minutes since midnight, Kyiv time, if `date` is today — else None.
+
+    The picture only draws the "Зараз ..." box, the highlighted current hour,
+    the current-time line and the dimmed-past-hours look for the day the
+    current moment actually falls in, exactly like the site does.
+    """
+    now = datetime.now(UKRAINE_TZ)
+    if date != now.strftime("%d.%m.%Y"):
+        return None
+    return now.hour * 60 + now.minute
+
+
 def _grid_picture(parsed: dict) -> dict | None:
     """The provider's table as a picture, or None when there is nothing to draw.
 
-    Keyed by the drawing's own contents rather than by date: an amended
-    schedule cannot collide with the one it replaced, and the same day asked
-    for twice costs nothing the second time.
+    For any day other than today, keyed by the drawing's own contents rather
+    than by date: an amended schedule cannot collide with the one it
+    replaced, and the same day asked for twice costs nothing the second time.
+
+    Today's picture bakes in the current moment (status box, current-time
+    line, dimmed past hours), so it is never reused across calls — a second
+    request minutes or hours later must show where "now" actually is, not
+    where it was the first time this schedule was drawn.
     """
     if not has_outages(parsed.get("schedule") or {}):
         return None
@@ -266,11 +284,17 @@ def _grid_picture(parsed: dict) -> dict | None:
     stamp = format_stamp_ua(updated_at or parsed.get("date"))
     intro = parsed.get("intro") or []
     cells = parsed.get("cells") or {}
+
+    now_minutes = _now_minutes_for(parsed.get("date"))
+    if now_minutes is not None:
+        png = render_png(parsed["schedule"], stamp, intro, cells, now_minutes=now_minutes)
+        return {"png": png, "file_id": None} if png is not None else None
+
     key = _picture_key(parsed["schedule"], stamp, intro, cells)
 
     cached = _pictures.get(key)
     if cached:
-        _pictures.move_to_end(key)   # today's grid stays put while amendments churn
+        _pictures.move_to_end(key)
         return cached
 
     png = render_png(parsed["schedule"], stamp, intro, cells)

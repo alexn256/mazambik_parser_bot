@@ -16,7 +16,7 @@ ONE_OUTAGE = {**EMPTY, "1.1": [{"start": "08:00", "end": "10:00"}]}
 
 def cell_colour(img, row, slot, table_top=5):
     """Colour at the middle of one half-hour cell."""
-    grid_y = table_top + 114
+    grid_y = table_top + grid_image.HDR_HOUR_H + grid_image.HDR_HALF_H
     x = GRID_X + slot * PITCH_X + PITCH_X // 2
     y = grid_y + row * PITCH_Y + PITCH_Y // 2
     return img.convert("RGB").getpixel((x, y))
@@ -73,7 +73,7 @@ class TestPaintedCells:
 class TestLayout:
     def test_every_cell_is_separated_by_a_rule(self):
         img = render(ONE_OUTAGE, "x").convert("RGB")
-        grid_y = 5 + 114
+        grid_y = 5 + grid_image.HDR_HOUR_H + grid_image.HDR_HALF_H
         # the pixel column just before a cell start belongs to the rule, not a cell
         assert img.getpixel((GRID_X + PITCH_X - 1, grid_y + 5)) == grid_image.RULE
         assert img.getpixel((GRID_X + 5, grid_y + PITCH_Y - 1)) == grid_image.RULE
