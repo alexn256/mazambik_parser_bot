@@ -52,12 +52,12 @@ ROW_SEAM_ALPHA = 0.6            # rgba(255,255,255,.6) seam under every cell
 
 PAST_OPACITY = 0.45  # .gpv-past
 
-CELL_W, CELL_H = 28, 24  # wider than tall — see note below
+CELL_W, CELL_H = 32, 24  # wider than tall — see note below
 # .gpv-c declares width:14px, but .gpv-table also has min-width:100% with
 # table-layout:fixed, so on an ordinary desktop-width page the table stretches
 # past its 48*14px natural width and every column gets a share of the extra
 # space — the 14px is a floor, not what actually renders. The real, on-screen
-# shape is wider than tall, confirmed against an actual screenshot.
+# shape is wider than tall, measured off an actual screenshot.
 # Half-hour cells touch directly — the site's own border-right/bottom on them
 # is 0 or near-invisible. What dividers exist (hour boundary, half-hour mark,
 # queue-pair gap) are drawn afterward, overlaying the cells' own edge pixels.
