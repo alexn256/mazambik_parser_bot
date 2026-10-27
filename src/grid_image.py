@@ -45,6 +45,7 @@ HOUR_BORDER = (158, 158, 158)   # 9e9e9e
 LABEL_BORDER = (117, 117, 117)  # 757575
 SCROLL_BORDER = (189, 189, 189)  # bdbdbd, .gpv-scroll's own frame
 DASH_ALPHA = 0.35               # rgba(0,0,0,.35) half-hour divider inside a cell
+ROW_SEAM_ALPHA = 0.6            # rgba(255,255,255,.6) seam under every cell
 
 PAST_OPACITY = 0.45  # .gpv-past
 
@@ -117,6 +118,11 @@ def _dim(colour: tuple) -> tuple:
 def _darken(colour: tuple, alpha: float = DASH_ALPHA) -> tuple:
     """`colour` blended toward black, matching an rgba(0,0,0,alpha) overlay."""
     return tuple(int(c * (1 - alpha)) for c in colour)
+
+
+def _lighten(colour: tuple, alpha: float = ROW_SEAM_ALPHA) -> tuple:
+    """`colour` blended toward white, matching an rgba(255,255,255,alpha) overlay."""
+    return tuple(int(c * (1 - alpha) + 255 * alpha) for c in colour)
 
 
 def _dashed_vline(d, x, y0, y1, colour, dash=3, gap=2):
@@ -312,6 +318,7 @@ def render(schedule: dict, stamp: str, intro: list | None = None,
                 fill=ACTIVE_RED if is_off else TEXT)
 
         row_cells = _row_cells(schedule.get(label, []), (cells or {}).get(label))
+        bottom_y = y0 + CELL_H - 1
         for i, colour in enumerate(row_cells):
             x = GRID_X + i * PITCH_X
             if now_minutes is not None and i < now_minutes // 30:
@@ -319,6 +326,8 @@ def render(schedule: dict, stamp: str, intro: list | None = None,
             d.rectangle([x, y0, x + CELL_W - 1, y0 + CELL_H - 1], fill=colour)
             if i % 2:  # the half-hour mark inside this hour: a dashed divider
                 _dashed_vline(d, x, y0, y0 + CELL_H, _darken(colour))
+            # every row's own faint seam, even between a queue's own two rows
+            d.line([x, bottom_y, x + CELL_W - 1, bottom_y], fill=_lighten(colour))
         if sub == 1 and row:  # queue-pair boundary: "1.2 | 2.1", not "1.1 | 1.2"
             d.line([TBL_L - 1, y0, GRID_R, y0], fill=LABEL_BORDER)
 

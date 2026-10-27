@@ -88,12 +88,15 @@ class TestLayout:
         assert on_a_dash != ON   # darkened by the dash
         assert in_a_gap == ON    # cells otherwise touch with no visible seam
 
-    def test_no_divider_between_a_queue_pairs_own_two_rows(self):
+    def test_a_faint_seam_separates_even_a_queues_own_two_rows(self):
         img = render(ONE_OUTAGE, "x").convert("RGB")
         grid_y = 5 + grid_image.HDR_HOUR_H + grid_image.HDR_HALF_H
-        # row 0 (1.1) and row 1 (1.2) are the same queue — cells touch, no rule
-        boundary_y = grid_y + PITCH_Y
-        assert img.getpixel((GRID_X + 5, boundary_y)) == ON
+        # row 0 (1.1) and row 1 (1.2) are the same queue — faint, not the dark rule
+        boundary_y = grid_y + grid_image.CELL_H - 1
+        seam = img.getpixel((GRID_X + 5, boundary_y))
+        assert seam == grid_image._lighten(ON)
+        assert seam != ON
+        assert seam != grid_image.LABEL_BORDER
 
     def test_queue_pairs_are_separated_by_the_darker_line(self):
         img = render(ONE_OUTAGE, "x").convert("RGB")
