@@ -71,6 +71,15 @@ TABLE_TOP_BARE = 5                             # when the provider published no 
 
 CAPTION_TEXT = "Порядок відключення черг"
 PERIODS_CAPTION = "Періоди відключень за чергами"
+NOTE_TEXT = (
+    "Відключення електроенергії відбувається не раніше зазначеного часу початку черги, "
+    "впродовж 0,5 год. Увімкнення електроенергії відбувається в останні 0,5 години "
+    "вимкненої черги."
+)
+NOTE_COLOUR = (97, 97, 97)  # 616161
+
+NOW_BAR_W = 4                           # border-left width of the status box
+NOW_BOX_TEXT_X = TBL_L + NOW_BAR_W + 8  # bar + its own padding, before the text starts
 
 # Liberation Sans is metric-compatible with the Arial the site is set in.
 # Debian ships it as fonts-liberation; the Dockerfile installs it.
@@ -197,15 +206,25 @@ def _table_top(intro, now_minutes=None) -> int:
     return int(y + TABLE_GAP)
 
 
+LEGEND_SWATCH_W = 16  # the site's own .gpv-legend i{width:16px}
+
+
 def _legend_items(now_minutes) -> list[tuple]:
+    """(colour, text, swatch_width, bordered) per legend entry.
+
+    Every swatch is a 16px bordered square except "Поточний час", which the
+    site draws as a bare 3px sliver with no border — it's a miniature of the
+    line itself, not a colour key.
+    """
     items = [
-        (ON, "«Увімкнено», електроенергія наявна"),
-        (OFF, "«Вимкнено», електроенергія відсутня"),
-        (SW, "Час, необхідний для перемикань. Електроенергії може не бути"),
+        (ON, "«Увімкнено», електроенергія наявна", LEGEND_SWATCH_W, True),
+        (OFF, "«Вимкнено», електроенергія відсутня", LEGEND_SWATCH_W, True),
+        (SW, "Час, необхідний для перемикань. Електроенергії може не бути",
+         LEGEND_SWATCH_W, True),
     ]
     if now_minutes is not None:
-        items.append((BLUE, "Поточний час"))
-        items.append((_dim(ON), "Час, що минув"))
+        items.append((BLUE, "Поточний час", 3, False))
+        items.append((_dim(ON), "Час, що минув", LEGEND_SWATCH_W, True))
     return items
 
 
@@ -231,7 +250,9 @@ def render(schedule: dict, stamp: str, intro: list | None = None,
     grid_b = grid_y + 12 * PITCH_Y
     periods_top = grid_b + 20
     periods_rows = -(-12 // 4)  # 4 columns
-    height = periods_top + 16 + periods_rows * 20 + 24
+    note_y = periods_top + 16 + periods_rows * 20 + 16
+    stamp_y = note_y + 18
+    height = stamp_y + 10
     width = GRID_R + 14
 
     reg, bold = _font("Regular", 12), _font("Bold", 12)
@@ -252,28 +273,29 @@ def render(schedule: dict, stamp: str, intro: list | None = None,
             ty = box_top + NOW_BOX_PAD_TOP
             box_bottom = ty + 2 * INTRO_PITCH + NOW_BOX_PAD_BOTTOM
             d.rectangle([TBL_L, box_top, GRID_R, box_bottom], fill=NOW_BG)
-            d.rectangle([TBL_L, box_top, TBL_L + 3, box_bottom], fill=BLUE)
+            d.rectangle([TBL_L, box_top, TBL_L + NOW_BAR_W, box_bottom], fill=BLUE)
             on_labels = [q for q in schedule if not off_now.get(q)]
             off_labels = [q for q in schedule if off_now.get(q)]
             slot_start = f"{now_minutes // 60:02d}:{'30' if now_minutes % 60 >= 30 else '00'}"
             slot_end_m = (now_minutes // 30 + 1) * 30
             slot_end = f"{(slot_end_m // 60) % 24:02d}:{slot_end_m % 60:02d}"
             now_txt = f"{now_minutes // 60:02d}:{now_minutes % 60:02d}"
-            _runs(d, INTRO_X, ty,
+            _runs(d, NOW_BOX_TEXT_X, ty,
                   [(f"Зараз {now_txt}", True), (f" (інтервал {slot_start}–{slot_end})", False)])
             ty += INTRO_PITCH
-            _runs(d, INTRO_X, ty,
+            _runs(d, NOW_BOX_TEXT_X, ty,
                   [("«Увімкнено», електроенергія наявна: ", False), (", ".join(on_labels), True)])
             ty += INTRO_PITCH
-            _runs(d, INTRO_X, ty,
+            _runs(d, NOW_BOX_TEXT_X, ty,
                   [("«Вимкнено», електроенергія відсутня: ", False), (", ".join(off_labels), True)])
             y = box_bottom
 
         legend_y = y + LEGEND_GAP + 7
         lx = INTRO_X
-        for colour, text in _legend_items(now_minutes):
-            d.rectangle([lx, legend_y - 6, lx + 16, legend_y + 6], fill=colour, outline=HOUR_BORDER)
-            lx += 22
+        for colour, text, swatch_w, bordered in _legend_items(now_minutes):
+            d.rectangle([lx, legend_y - 6, lx + swatch_w, legend_y + 6], fill=colour,
+                        outline=HOUR_BORDER if bordered else None)
+            lx += swatch_w + 6
             d.text((lx, legend_y), text, font=_font("Regular", 11), fill=TEXT, anchor="lm")
             lx += d.textlength(text, font=_font("Regular", 11)) + 18
 
@@ -365,7 +387,8 @@ def render(schedule: dict, stamp: str, intro: list | None = None,
         d.line([TBL_L + col * col_w, underline_y, TBL_L + (col + 1) * col_w - 16, underline_y],
                fill=(238, 238, 238))
 
-    d.text((width - 14, height - 14), stamp, font=_font("Regular", 11), fill=TEXT, anchor="rm")
+    d.text((TBL_L, note_y), NOTE_TEXT, font=_font("Regular", 12), fill=NOTE_COLOUR, anchor="lm")
+    d.text((width - 14, stamp_y), stamp, font=_font("Regular", 11), fill=TEXT, anchor="rm")
     return img
 
 
