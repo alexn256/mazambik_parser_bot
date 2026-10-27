@@ -363,8 +363,9 @@ def render(schedule: dict, stamp: str, intro: list | None = None,
             # as one continuous overlay — so every row's own seam still shows
             # through it, and it never reaches into the trailing blank row.
             line_x = GRID_X + line_frac * PITCH_X
-            d.rectangle([line_x - 2, y0, line_x + 2, y0 + CELL_H - 1], fill=WHITE)  # box-shadow halo
-            d.rectangle([line_x - 1, y0, line_x + 1, y0 + CELL_H - 1], fill=BLUE)
+            # .gpv-line is width:2px with a 1px white halo each side (box-shadow)
+            d.rectangle([line_x - 2, y0, line_x + 1, y0 + CELL_H - 1], fill=WHITE)  # halo
+            d.rectangle([line_x - 1, y0, line_x, y0 + CELL_H - 1], fill=BLUE)
 
         # every row's own faint seam, even between a queue's own two rows —
         # drawn last so it still cuts across the current-time line too
