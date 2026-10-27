@@ -32,15 +32,27 @@ logger = logging.getLogger(__name__)
 # The provider's own legend colours (gpv-s1/2/3 in its stylesheet)
 ON, OFF, SW = (123, 198, 126), (217, 83, 79), (245, 194, 66)
 WHITE, HDR_BG = (255, 255, 255), (245, 245, 245)
-RULE, INNER, BLUE = (224, 224, 224), (189, 189, 189), (13, 71, 161)
+BLUE = (13, 71, 161)
 TEXT, MUTED = (49, 49, 49), (117, 117, 117)
 NOW_BG, NOW_TEXT = (227, 242, 253), (13, 71, 161)   # gpv-now-info / gpv-now-h
 ACTIVE_RED = (211, 47, 47)                          # gpv-active
 
+# The site's own border colours: th/td get a faint e0e0e0 by default; the hour
+# boundary, the label column and the divider between queue pairs are a
+# noticeably darker, deliberate line; the whole table sits in a thin frame.
+GEN_BORDER = (224, 224, 224)    # e0e0e0
+HOUR_BORDER = (158, 158, 158)   # 9e9e9e
+LABEL_BORDER = (117, 117, 117)  # 757575
+SCROLL_BORDER = (189, 189, 189)  # bdbdbd, .gpv-scroll's own frame
+DASH_ALPHA = 0.35               # rgba(0,0,0,.35) half-hour divider inside a cell
+
 PAST_OPACITY = 0.45  # .gpv-past
 
 CELL_W, CELL_H = 28, 24
-PITCH_X, PITCH_Y = CELL_W + 1, CELL_H + 1
+# Half-hour cells touch directly — the site's own border-right/bottom on them
+# is 0 or near-invisible. What dividers exist (hour boundary, half-hour mark,
+# queue-pair gap) are drawn afterward, overlaying the cells' own edge pixels.
+PITCH_X, PITCH_Y = CELL_W, CELL_H
 TBL_L = 7
 LABEL_R = TBL_L + 55                                # single "1.1"-style column
 GRID_X = LABEL_R + 1
@@ -100,6 +112,18 @@ def _runs(d, x, y, runs, size=13):
 def _dim(colour: tuple) -> tuple:
     """`colour` blended toward white at PAST_OPACITY, matching .gpv-past."""
     return tuple(int(c * PAST_OPACITY + 255 * (1 - PAST_OPACITY)) for c in colour)
+
+
+def _darken(colour: tuple, alpha: float = DASH_ALPHA) -> tuple:
+    """`colour` blended toward black, matching an rgba(0,0,0,alpha) overlay."""
+    return tuple(int(c * (1 - alpha)) for c in colour)
+
+
+def _dashed_vline(d, x, y0, y1, colour, dash=3, gap=2):
+    y = y0
+    while y < y1:
+        d.line([x, y, x, min(y + dash, y1)], fill=colour)
+        y += dash + gap
 
 
 def _slot(time_str: str) -> int:
@@ -242,15 +266,17 @@ def render(schedule: dict, stamp: str, intro: list | None = None,
         legend_y = y + LEGEND_GAP + 7
         lx = INTRO_X
         for colour, text in _legend_items(now_minutes):
-            d.rectangle([lx, legend_y - 6, lx + 14, legend_y + 4], fill=colour, outline=INNER)
-            lx += 20
+            d.rectangle([lx, legend_y - 6, lx + 16, legend_y + 6], fill=colour, outline=HOUR_BORDER)
+            lx += 22
             d.text((lx, legend_y), text, font=_font("Regular", 11), fill=TEXT, anchor="lm")
             lx += d.textlength(text, font=_font("Regular", 11)) + 18
 
-    # Table header: one row of "HH–HH" per hour, one row of "00"/"30" per half-hour
-    d.rectangle([TBL_L - 1, top, GRID_R, grid_y - 1], fill=HDR_BG, outline=RULE)
-    d.rectangle([TBL_L - 1, top, LABEL_R, grid_y - 1], fill=HDR_BG, outline=INNER)
-    _centre(d, TBL_L, LABEL_R, (top + grid_y) / 2 - 1, "Черга", bold)
+    # Table header: one row of "HH–HH" per hour, one row of "00"/"30" per half-hour.
+    # Cells touch directly (no gap); a hairline shows only where the site draws
+    # one — the generic e0e0e0 divider under row 1 and between the half-hour
+    # sub-labels, the darker 9e9e9e line at each hour boundary.
+    d.rectangle([TBL_L - 1, top, GRID_R, grid_y - 1], fill=HDR_BG)
+    d.line([TBL_L - 1, top + HDR_HOUR_H, GRID_R, top + HDR_HOUR_H], fill=GEN_BORDER)
 
     now_hour = now_minutes // 60 if now_minutes is not None else None
     for hour in range(24):
@@ -262,26 +288,27 @@ def render(schedule: dict, stamp: str, intro: list | None = None,
                     bold, fill=NOW_TEXT)
         else:
             _centre(d, x0, x1, top + HDR_HOUR_H / 2, f"{hour:02d}–{(hour + 1) % 24:02d}", bold)
-        if hour:
-            d.line([x0 - 1, top, x0 - 1, grid_y - 1], fill=INNER)
-        for half, label in enumerate(("00", "30")):
+        for half, half_label in enumerate(("00", "30")):
             hx0 = x0 + half * PITCH_X
-            _centre(d, hx0, hx0 + PITCH_X, top + HDR_HOUR_H + HDR_HALF_H / 2, label, reg,
+            _centre(d, hx0, hx0 + PITCH_X, top + HDR_HOUR_H + HDR_HALF_H / 2, half_label, reg,
                     fill=MUTED)
+            if half:
+                d.line([hx0, top + HDR_HOUR_H, hx0, grid_y - 1], fill=GEN_BORDER)
 
-    d.line([TBL_L - 1, grid_y - 1, GRID_R, grid_y - 1], fill=RULE)
+    d.rectangle([TBL_L - 1, top, LABEL_R, grid_y - 1], fill=HDR_BG)
+    d.line([LABEL_R, top, LABEL_R, grid_b - 1], fill=LABEL_BORDER)
+    _centre(d, TBL_L, LABEL_R, (top + grid_y) / 2 - 1, "Черга", bold)
 
-    # Rules show through the 1px margin left around every cell below
-    d.rectangle([GRID_X - 1, grid_y - 1, GRID_R, grid_b - 1], fill=RULE)
+    # Header/body boundary — the darker "gpv-first" line, not the generic one
+    d.line([TBL_L - 1, grid_y - 1, GRID_R, grid_y - 1], fill=LABEL_BORDER)
 
     for row in range(12):
         queue, sub = row // 2 + 1, row % 2 + 1
         label = f"{queue}.{sub}"
         y0 = grid_y + row * PITCH_Y
-        y1 = y0 + PITCH_Y
         is_off = off_now.get(label, False)
-        d.rectangle([TBL_L - 1, y0 - 1, LABEL_R, y1 - 1], fill=WHITE, outline=INNER)
-        _centre(d, TBL_L, LABEL_R, (y0 + y1) / 2 - 1, label, bold,
+        d.rectangle([TBL_L - 1, y0, LABEL_R - 1, y0 + PITCH_Y - 1], fill=WHITE)
+        _centre(d, TBL_L, LABEL_R, y0 + PITCH_Y / 2, label, bold,
                 fill=ACTIVE_RED if is_off else TEXT)
 
         row_cells = _row_cells(schedule.get(label, []), (cells or {}).get(label))
@@ -290,12 +317,23 @@ def render(schedule: dict, stamp: str, intro: list | None = None,
             if now_minutes is not None and i < now_minutes // 30:
                 colour = _dim(colour)
             d.rectangle([x, y0, x + CELL_W - 1, y0 + CELL_H - 1], fill=colour)
+            if i % 2:  # the half-hour mark inside this hour: a dashed divider
+                _dashed_vline(d, x, y0, y0 + CELL_H, _darken(colour))
+        if sub == 1 and row:  # queue-pair boundary: "1.2 | 2.1", not "1.1 | 1.2"
+            d.line([TBL_L - 1, y0, GRID_R, y0], fill=LABEL_BORDER)
+
+    for hour in range(1, 24):  # hour boundary, spanning header + body together
+        x = GRID_X + hour * 2 * PITCH_X
+        d.line([x, top, x, grid_b - 1], fill=HOUR_BORDER)
 
     if now_minutes is not None:
         slot = now_minutes // 30
         frac = (now_minutes % 30) / 30
         line_x = GRID_X + (slot + frac) * PITCH_X
         d.line([line_x, grid_y - 1, line_x, grid_b - 1], fill=BLUE, width=2)
+
+    # The site's own .gpv-scroll frame around the whole table
+    d.rectangle([TBL_L - 1, top, GRID_R, grid_b - 1], outline=SCROLL_BORDER)
 
     # Periods list: each queue's outage ranges, four per row
     _centre(d, TBL_L, GRID_R, periods_top, PERIODS_CAPTION, _font("Bold", 12))
@@ -314,6 +352,9 @@ def render(schedule: dict, stamp: str, intro: list | None = None,
         px += d.textlength("— ", font=body_font)
         ranges_txt = ", ".join(_fmt_period(r) for r in schedule.get(label, []))
         d.text((px, py), ranges_txt or "—", font=body_font, fill=TEXT, anchor="lm")
+        underline_y = py + 10
+        d.line([TBL_L + col * col_w, underline_y, TBL_L + (col + 1) * col_w - 16, underline_y],
+               fill=(238, 238, 238))
 
     d.text((width - 14, height - 14), stamp, font=_font("Regular", 11), fill=TEXT, anchor="rm")
     return img

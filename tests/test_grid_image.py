@@ -5,7 +5,7 @@ import pytest
 from PIL import Image
 
 import grid_image
-from grid_image import GRID_X, OFF, ON, PITCH_X, PITCH_Y, SW, render, render_png
+from grid_image import GRID_X, OFF, ON, PITCH_X, PITCH_Y, SW, TBL_L, render, render_png
 from poe_source import parse_response
 
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures")
@@ -71,12 +71,41 @@ class TestPaintedCells:
 
 
 class TestLayout:
-    def test_every_cell_is_separated_by_a_rule(self):
+    def test_hour_boundary_is_a_solid_darker_line(self):
         img = render(ONE_OUTAGE, "x").convert("RGB")
         grid_y = 5 + grid_image.HDR_HOUR_H + grid_image.HDR_HALF_H
-        # the pixel column just before a cell start belongs to the rule, not a cell
-        assert img.getpixel((GRID_X + PITCH_X - 1, grid_y + 5)) == grid_image.RULE
-        assert img.getpixel((GRID_X + 5, grid_y + PITCH_Y - 1)) == grid_image.RULE
+        # slot 2 starts hour 1 — the boundary before it is the darker hour rule
+        x = GRID_X + 2 * PITCH_X
+        assert img.getpixel((x, grid_y + 5)) == grid_image.HOUR_BORDER
+
+    def test_half_hour_mark_is_dashed_not_solid(self):
+        img = render(ONE_OUTAGE, "x").convert("RGB")
+        grid_y = 5 + grid_image.HDR_HOUR_H + grid_image.HDR_HALF_H
+        # slot 1 (00:30) is the second half of hour 0 — a dashed divider, not a gap
+        x = GRID_X + 1 * PITCH_X
+        on_a_dash = img.getpixel((x, grid_y))
+        in_a_gap = img.getpixel((x, grid_y + 4))
+        assert on_a_dash != ON   # darkened by the dash
+        assert in_a_gap == ON    # cells otherwise touch with no visible seam
+
+    def test_no_divider_between_a_queue_pairs_own_two_rows(self):
+        img = render(ONE_OUTAGE, "x").convert("RGB")
+        grid_y = 5 + grid_image.HDR_HOUR_H + grid_image.HDR_HALF_H
+        # row 0 (1.1) and row 1 (1.2) are the same queue — cells touch, no rule
+        boundary_y = grid_y + PITCH_Y
+        assert img.getpixel((GRID_X + 5, boundary_y)) == ON
+
+    def test_queue_pairs_are_separated_by_the_darker_line(self):
+        img = render(ONE_OUTAGE, "x").convert("RGB")
+        grid_y = 5 + grid_image.HDR_HOUR_H + grid_image.HDR_HALF_H
+        # row 1 (1.2) and row 2 (2.1) are different queues — a visible divider
+        boundary_y = grid_y + 2 * PITCH_Y
+        assert img.getpixel((GRID_X + 5, boundary_y)) == grid_image.LABEL_BORDER
+
+    def test_the_whole_table_sits_in_a_thin_frame(self):
+        img = render(ONE_OUTAGE, "x").convert("RGB")
+        top = 5
+        assert img.getpixel((TBL_L - 1, top)) == grid_image.SCROLL_BORDER
 
     def test_intro_pushes_the_table_down_one_line_at_a_time(self):
         two = render(ONE_OUTAGE, "x", intro=[[("a", False)], [("b", True)]])
