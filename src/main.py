@@ -39,6 +39,7 @@ from monitor import create_client, monitor_channel
 from parser import parse_schedule_image
 from poe_source import PoeParseError, fetch_days, format_stamp_ua, has_outages
 from grid_image import render_png
+from cards_image import render_png as render_cards_png
 from sender import BROADCAST_DELAY, broadcast, send_message, send_photo
 from history import load_history, record_day, save_history
 from state import build_state, is_new_day, load_state, save_state
@@ -452,6 +453,28 @@ async def send_tomorrow_schedule(chat_id: int) -> None:
             "Зазвичай він з'являється ввечері.")
         return
     await _send_day_schedule(chat_id, tomorrow, entry, "завтра")
+
+
+async def send_cards_schedule(chat_id: int) -> None:
+    """Send today's schedule as the per-queue "cards" picture, on request.
+
+    An alternative to the grid, never sent on its own — some subscribers find
+    a plain list of times per queue easier to read than the provider's table.
+    """
+    state = load_state(STATE_FILE_PATH)
+    today = datetime.now(UKRAINE_TZ).strftime("%d.%m.%Y")
+    entry = state.get(today)
+    if not entry or not has_outages(entry["schedule"]):
+        await send_message(BOT_TOKEN, chat_id,
+            "ℹ️ На сьогодні відключень не прогнозується, або графік ще не опубліковано.")
+        return
+    png = render_cards_png(entry["schedule"], today)
+    if png is None:
+        await send_message(BOT_TOKEN, chat_id, "❌ Не вдалось намалювати картинку.")
+        return
+    file_id = await send_photo(BOT_TOKEN, chat_id, png)
+    if file_id is None:
+        await send_message(BOT_TOKEN, chat_id, "❌ Не вдалось надіслати картинку.")
 
 
 async def process_image(image_path: str, date: str | None = None, timestamp: str | None = None,
@@ -922,6 +945,9 @@ async def send_start_message(client: httpx.AsyncClient, chat_id: int) -> None:
                 {"text": "📅 Графік на завтра", "callback_data": "show_tomorrow"},
             ],
             [
+                {"text": "🔢 Циферки", "callback_data": "show_cards"},
+            ],
+            [
                 {"text": "⚡ Є світло зараз?", "callback_data": "show_status"},
             ],
             [
@@ -937,6 +963,7 @@ async def send_start_message(client: httpx.AsyncClient, chat_id: int) -> None:
         "Привіт! Цей бот надсилає графік відключень електроенергії.\n\n"
         "📋 Поточний графік — розклад на сьогодні\n"
         "📅 Графік на завтра — якщо вже опубліковано\n"
+        "🔢 Циферки — той самий графік картками по черзі\n"
         "⚡ Є світло зараз? — поточний статус прямо зараз\n"
         "🔍 Яка у мене черга? — визначити чергу за адресою\n"
         "⚙️ Моя черга — персональні сповіщення по своїй черзі\n"
@@ -1099,6 +1126,10 @@ async def poll_commands() -> None:
                         elif data == "show_tomorrow":
                             await answer_callback(client, cq["id"], "📅 Надсилаю графік на завтра...")
                             await send_tomorrow_schedule(chat_id)
+
+                        elif data == "show_cards":
+                            await answer_callback(client, cq["id"], "🔢 Надсилаю...")
+                            await send_cards_schedule(chat_id)
 
                         elif data == "select_queue":
                             await answer_callback(client, cq["id"], "")
