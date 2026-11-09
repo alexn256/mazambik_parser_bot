@@ -3,9 +3,10 @@ provider's own grid, modelled on the СВІТЛО КРЕМЕНЧУК channel's p
 style. A subscriber asks for this one explicitly; it is never sent on its
 own, and never replaces the grid.
 
-Colours and geometry were measured off a real sample of that channel's
-picture (card 267x~140px, 21px side margins, a 78px orange header), not off
-any spec — there isn't one.
+Colours, geometry and font sizes were measured off a real sample of that
+channel's picture (card 267x~140px, 21px side margins, a 78px orange
+header, badges and body text sized against the image's own pixel height),
+not off any spec — there isn't one.
 """
 
 import io
@@ -29,26 +30,37 @@ WATERMARK_ALPHA = 28  # out of 255 — faint, legible as decoration not noise
 WIDTH = 600
 MARGIN = 21
 HEADER_H = 78
-TITLE_Y = 118
-SUBTITLE_Y = 148
-CARDS_TOP = 184
+TITLE_Y = 120
+SUBTITLE_Y = 160
+CARDS_TOP = 202
 
 COL_GAP = 22
-ROW_GAP = 22
-CARD_PAD_X = 16
-CARD_PAD_TOP = 16
-CARD_PAD_BOTTOM = 14
+ROW_GAP = 21
+CARD_PAD_X = 10
+CARD_PAD_TOP = 8
+CARD_PAD_BOTTOM = 19
 LINE_PITCH = 26
-BADGE_W, BADGE_H = 46, 26
-BADGE_RADIUS = 13
+BADGE_W, BADGE_H = 50, 36
+BADGE_RADIUS = 8
 CARD_RADIUS = 10
+BADGE_TEXT_GAP = 16  # badge's right edge -> the time-range text column
+
+# Font sizes: solved from each element's measured cap-height against this
+# font's own cap-height-per-point-size (~0.71 for Liberation Sans, digits
+# and Cyrillic caps both), not guessed — a bare point-size copied from
+# another image says nothing without knowing that image's own pixel scale.
+HEADER_FONT_SIZE = 35
+TITLE_FONT_SIZE = 30
+SUBTITLE_FONT_SIZE = 15
+BADGE_FONT_SIZE = 33
+TIME_FONT_SIZE = 20
 
 HEADER_TEXT = "СВІТЛО КРЕМЕНЧУК"
 TITLE_TEXT = "ГРАФІК ПОГОДИННИХ ВІДКЛЮЧЕНЬ"
 EMPTY_TEXT = "Без відключень"
 WATERMARK_LINE1 = "СВІТЛО КРЕМЕНЧУК"
 WATERMARK_LINE2 = "https://t.me/kremen_svitlo"
-WATERMARK_ANGLE = 18  # degrees, bottom-left to top-right like the sample
+WATERMARK_ANGLE = -37  # PIL rotates counter-clockwise for +angle; this reads clockwise
 
 FONT_DIRS = (
     "/usr/share/fonts/truetype/liberation",
@@ -110,7 +122,7 @@ def _draw_watermark(img: Image.Image, cx: int, cy: int) -> None:
 
 
 def _draw_card(img: Image.Image, d: ImageDraw.ImageDraw, x: int, y: int, w: int,
-               label: str, ranges: list[dict], bold: ImageFont.FreeTypeFont,
+               label: str, ranges: list[dict],
                reg: ImageFont.FreeTypeFont, badge_font: ImageFont.FreeTypeFont) -> int:
     n_lines = len(ranges) or 1
     h = _card_height(n_lines)
@@ -123,7 +135,7 @@ def _draw_card(img: Image.Image, d: ImageDraw.ImageDraw, x: int, y: int, w: int,
                         radius=BADGE_RADIUS, fill=ORANGE)
     _centre(d, badge_x, badge_x + BADGE_W, badge_y + BADGE_H / 2, label, badge_font, WHITE)
 
-    text_x = badge_x + BADGE_W + 12
+    text_x = badge_x + BADGE_W + BADGE_TEXT_GAP
     first_y = badge_y + BADGE_H / 2
     if ranges:
         for i, r in enumerate(ranges):
@@ -138,10 +150,11 @@ def _draw_card(img: Image.Image, d: ImageDraw.ImageDraw, x: int, y: int, w: int,
 def render(schedule: dict, date: str) -> Image.Image:
     """Draw the cards picture for one day's `schedule` (same shape as the
     grid's own: {"1.1": [{"start", "end"}, ...], ...})."""
-    bold22 = _font("Bold", 22)
-    bold15 = _font("Bold", 15)
-    reg13 = _font("Regular", 13)
-    reg12 = _font("Regular", 12)
+    header_font = _font("Bold", HEADER_FONT_SIZE)
+    title_font = _font("Bold", TITLE_FONT_SIZE)
+    subtitle_font = _font("Regular", SUBTITLE_FONT_SIZE)
+    badge_font = _font("Bold", BADGE_FONT_SIZE)
+    time_font = _font("Regular", TIME_FONT_SIZE)
 
     col_w = (WIDTH - 2 * MARGIN - COL_GAP) // 2
     col_x = (MARGIN, MARGIN + col_w + COL_GAP)
@@ -157,15 +170,15 @@ def render(schedule: dict, date: str) -> Image.Image:
     d = ImageDraw.Draw(img)
 
     d.rectangle([0, 0, WIDTH, HEADER_H], fill=ORANGE)
-    _centre(d, 0, WIDTH, HEADER_H / 2, HEADER_TEXT, bold22, WHITE)
-    _centre(d, 0, WIDTH, TITLE_Y, TITLE_TEXT, bold15, TITLE_COLOUR)
-    _centre(d, 0, WIDTH, SUBTITLE_Y, f"Інформація на {date}", reg13, SUBTITLE_COLOUR)
+    _centre(d, 0, WIDTH, HEADER_H / 2, HEADER_TEXT, header_font, WHITE)
+    _centre(d, 0, WIDTH, TITLE_Y, TITLE_TEXT, title_font, TITLE_COLOUR)
+    _centre(d, 0, WIDTH, SUBTITLE_Y, f"Інформація на {date}", subtitle_font, SUBTITLE_COLOUR)
 
     y = CARDS_TOP
     for labels, row_h in rows:
         for label, x in zip(labels, col_x):
             _draw_card(img, d, x, y, col_w, label, schedule.get(label, []),
-                      bold15, reg12, bold15)
+                      time_font, badge_font)
         y += row_h + ROW_GAP
 
     return img
