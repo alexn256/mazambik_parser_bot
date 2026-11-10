@@ -47,9 +47,9 @@ BADGE_TEXT_GAP = 16  # badge's right edge -> the time-range text column
 
 # Font sizes given directly by the user, overriding an earlier cap-height
 # measurement off the sample image.
-HEADER_FONT_SIZE = 34
-TITLE_FONT_SIZE = 26
-SUBTITLE_FONT_SIZE = 18
+HEADER_FONT_SIZE = 35
+TITLE_FONT_SIZE = 25
+SUBTITLE_FONT_SIZE = 19
 BADGE_FONT_SIZE = 22
 TIME_FONT_SIZE = 20
 
