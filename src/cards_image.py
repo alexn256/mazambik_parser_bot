@@ -45,14 +45,12 @@ BADGE_RADIUS = 8
 CARD_RADIUS = 10
 BADGE_TEXT_GAP = 16  # badge's right edge -> the time-range text column
 
-# Font sizes: solved from each element's measured cap-height against this
-# font's own cap-height-per-point-size (~0.71 for Liberation Sans, digits
-# and Cyrillic caps both), not guessed — a bare point-size copied from
-# another image says nothing without knowing that image's own pixel scale.
-HEADER_FONT_SIZE = 35
-TITLE_FONT_SIZE = 30
-SUBTITLE_FONT_SIZE = 15
-BADGE_FONT_SIZE = 33
+# Font sizes given directly by the user, overriding an earlier cap-height
+# measurement off the sample image.
+HEADER_FONT_SIZE = 34
+TITLE_FONT_SIZE = 26
+SUBTITLE_FONT_SIZE = 18
+BADGE_FONT_SIZE = 22
 TIME_FONT_SIZE = 20
 
 HEADER_TEXT = "СВІТЛО КРЕМЕНЧУК"
