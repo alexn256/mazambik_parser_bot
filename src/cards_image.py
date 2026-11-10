@@ -50,7 +50,7 @@ BADGE_TEXT_GAP = 16  # badge's right edge -> the time-range text column
 HEADER_FONT_SIZE = 35
 TITLE_FONT_SIZE = 25
 SUBTITLE_FONT_SIZE = 19
-BADGE_FONT_SIZE = 22
+BADGE_FONT_SIZE = 21
 TIME_FONT_SIZE = 20
 
 HEADER_TEXT = "СВІТЛО КРЕМЕНЧУК"
@@ -114,8 +114,11 @@ def _watermark_stamp() -> Image.Image:
     return layer.rotate(WATERMARK_ANGLE, expand=True, resample=Image.BICUBIC)
 
 
+WATERMARK_Y_OFFSET = 22  # shifts the stamp down from the card's own centre
+
 def _draw_watermark(img: Image.Image, cx: int, cy: int) -> None:
     stamp = _watermark_stamp()
+    cy += WATERMARK_Y_OFFSET
     img.paste(stamp, (int(cx - stamp.width / 2), int(cy - stamp.height / 2)), stamp)
 
 
