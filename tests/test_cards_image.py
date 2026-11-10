@@ -37,9 +37,11 @@ class TestLayout:
         assert img.getpixel((0, 10)) == cards_image.ORANGE
         assert img.getpixel((cards_image.WIDTH - 1, 10)) == cards_image.ORANGE
 
-    def test_below_the_header_is_plain_white(self):
+    def test_below_the_header_is_white_outside_the_watermark(self):
+        # The enlarged watermark now bleeds above its own card on purpose;
+        # the far right of that row is still past its reach
         img = render(ONE_RANGE, "08.11.2026").convert("RGB")
-        assert img.getpixel((5, cards_image.HEADER_H + 5)) == cards_image.WHITE
+        assert img.getpixel((cards_image.WIDTH - 5, cards_image.HEADER_H + 5)) == cards_image.WHITE
 
 
 class TestCardHeight:

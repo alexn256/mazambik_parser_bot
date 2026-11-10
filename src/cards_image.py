@@ -102,15 +102,15 @@ def _watermark_stamp() -> Image.Image:
     """One rotated, semi-transparent copy of the two-line watermark text,
     sized to its own bounding box — pasted once per card, not tiled, which
     is how the sample picture actually uses it."""
-    font1 = _font("Bold", 21)     # 15 * 1.4
-    font2 = _font("Regular", 15)  # 11 * 1.4
+    font1 = _font("Bold", 42)     # 15 * 1.4 * 2
+    font2 = _font("Regular", 30)  # 11 * 1.4 * 2
     pad = 10
     w = max(font1.getlength(WATERMARK_LINE1), font2.getlength(WATERMARK_LINE2)) + pad * 2
-    h = 56 + pad * 2  # 40 * 1.4
+    h = 112 + pad * 2  # 40 * 1.4 * 2
     layer = Image.new("RGBA", (int(w), int(h)), (0, 0, 0, 0))
     d = ImageDraw.Draw(layer)
     d.text((pad, pad), WATERMARK_LINE1, font=font1, fill=(0, 0, 0, WATERMARK_ALPHA))
-    d.text((pad, pad + 31), WATERMARK_LINE2, font=font2, fill=(0, 0, 0, WATERMARK_ALPHA))  # 22 * 1.4
+    d.text((pad, pad + 62), WATERMARK_LINE2, font=font2, fill=(0, 0, 0, WATERMARK_ALPHA))  # 22 * 1.4 * 2
     return layer.rotate(WATERMARK_ANGLE, expand=True, resample=Image.BICUBIC)
 
 
