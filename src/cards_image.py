@@ -114,7 +114,7 @@ def _watermark_stamp() -> Image.Image:
     return layer.rotate(WATERMARK_ANGLE, expand=True, resample=Image.BICUBIC)
 
 
-WATERMARK_Y_OFFSET = 22  # shifts the stamp down from the card's own centre
+WATERMARK_Y_OFFSET = 47  # shifts the stamp down from the card's own centre (22 + 25)
 
 def _draw_watermark(img: Image.Image, cx: int, cy: int) -> None:
     stamp = _watermark_stamp()
