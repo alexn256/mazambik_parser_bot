@@ -122,11 +122,12 @@ def _draw_watermark(img: Image.Image, cx: int, cy: int) -> None:
     img.paste(stamp, (int(cx - stamp.width / 2), int(cy - stamp.height / 2)), stamp)
 
 
-def _draw_card(img: Image.Image, d: ImageDraw.ImageDraw, x: int, y: int, w: int,
+def _draw_card(img: Image.Image, d: ImageDraw.ImageDraw, x: int, y: int, w: int, h: int,
                label: str, ranges: list[dict],
-               reg: ImageFont.FreeTypeFont, badge_font: ImageFont.FreeTypeFont) -> int:
-    n_lines = len(ranges) or 1
-    h = _card_height(n_lines)
+               reg: ImageFont.FreeTypeFont, badge_font: ImageFont.FreeTypeFont) -> None:
+    # Every card is the same fixed height, set by the day's own busiest
+    # queue — a quiet queue's card must look exactly as "big" as a busy
+    # one's, not shrink to fit its own shorter list.
     d.rounded_rectangle([x, y, x + w, y + h], radius=CARD_RADIUS, fill=CARD_BG)
 
     _draw_watermark(img, x + w // 2, y + h // 2)
@@ -145,8 +146,6 @@ def _draw_card(img: Image.Image, d: ImageDraw.ImageDraw, x: int, y: int, w: int,
     else:
         d.text((text_x, first_y), EMPTY_TEXT, font=reg, fill=EMPTY_COLOUR, anchor="lm")
 
-    return h
-
 
 def render(schedule: dict, date: str) -> Image.Image:
     """Draw the cards picture for one day's `schedule` (same shape as the
@@ -160,13 +159,14 @@ def render(schedule: dict, date: str) -> Image.Image:
     col_w = (WIDTH - 2 * MARGIN - COL_GAP) // 2
     col_x = (MARGIN, MARGIN + col_w + COL_GAP)
 
-    rows = []
-    for q in range(1, 7):
-        labels = (f"{q}.1", f"{q}.2")
-        heights = [_card_height(len(schedule.get(label, []))) for label in labels]
-        rows.append((labels, max(heights)))
+    labels_by_row = [(f"{q}.1", f"{q}.2") for q in range(1, 7)]
+    # One fixed height for every card, set by the day's busiest queue — a
+    # quiet queue's card must not shrink to fit its own shorter list.
+    max_lines = max((len(schedule.get(label, [])) for row in labels_by_row for label in row),
+                    default=1)
+    card_h = _card_height(max_lines)
 
-    height = CARDS_TOP + sum(h for _, h in rows) + (len(rows) - 1) * ROW_GAP + MARGIN
+    height = CARDS_TOP + len(labels_by_row) * card_h + (len(labels_by_row) - 1) * ROW_GAP + MARGIN
     img = Image.new("RGB", (WIDTH, height), WHITE)
     d = ImageDraw.Draw(img)
 
@@ -176,11 +176,11 @@ def render(schedule: dict, date: str) -> Image.Image:
     _centre(d, 0, WIDTH, SUBTITLE_Y, f"Інформація на {date}", subtitle_font, SUBTITLE_COLOUR)
 
     y = CARDS_TOP
-    for labels, row_h in rows:
+    for labels in labels_by_row:
         for label, x in zip(labels, col_x):
-            _draw_card(img, d, x, y, col_w, label, schedule.get(label, []),
+            _draw_card(img, d, x, y, col_w, card_h, label, schedule.get(label, []),
                       time_font, badge_font)
-        y += row_h + ROW_GAP
+        y += card_h + ROW_GAP
 
     return img
 
