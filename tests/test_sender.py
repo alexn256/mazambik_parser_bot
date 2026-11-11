@@ -1,10 +1,11 @@
 import asyncio
+import json
 
 import httpx
 import pytest
 
 import sender
-from sender import send_message
+from sender import send_message, send_photo
 
 
 class FakeResponse:
@@ -32,9 +33,10 @@ class FakeClient:
     async def __aexit__(self, *args):
         return False
 
-    async def post(self, url, json=None):
+    async def post(self, url, json=None, data=None, files=None):
         FakeClient.calls += 1
         FakeClient.last_json = json
+        FakeClient.last_data = data
         item = FakeClient.scripted.pop(0)
         if isinstance(item, Exception):
             raise item
@@ -102,3 +104,16 @@ class TestSendMessage:
         keyboard = {"keyboard": [[{"text": "☰ Меню"}]], "resize_keyboard": True}
         asyncio.run(send_message("t", 1, "hi", reply_markup=keyboard))
         assert FakeClient.last_json["reply_markup"] == keyboard
+
+
+class TestSendPhoto:
+    def test_reply_markup_omitted_by_default(self, fake_http):
+        FakeClient.scripted = [FakeResponse(200, {"result": {"photo": [{"file_id": "f1"}]}})]
+        asyncio.run(send_photo("t", 1, "some-existing-file-id"))
+        assert "reply_markup" not in FakeClient.last_data
+
+    def test_reply_markup_passed_through_when_given(self, fake_http):
+        FakeClient.scripted = [FakeResponse(200, {"result": {"photo": [{"file_id": "f1"}]}})]
+        keyboard = {"keyboard": [[{"text": "☰ Меню"}]], "resize_keyboard": True}
+        asyncio.run(send_photo("t", 1, "some-existing-file-id", reply_markup=keyboard))
+        assert json.loads(FakeClient.last_data["reply_markup"]) == keyboard

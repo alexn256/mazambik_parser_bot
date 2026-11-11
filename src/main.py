@@ -193,14 +193,15 @@ async def send_current_status(chat_id: int) -> None:
             with open(image_path, "rb") as f:
                 resp = await client.post(
                     f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto",
-                    data={"chat_id": chat_id, "caption": text},
+                    data={"chat_id": chat_id, "caption": text,
+                          "reply_markup": json.dumps(MENU_KEYBOARD)},
                     files={"photo": (image_name, f, "image/png")},
                 )
         if resp.status_code != 200:
             raise RuntimeError(f"sendPhoto returned {resp.status_code}")
     except Exception:
         logger.exception("Failed to send status photo, falling back to text")
-        await send_message(BOT_TOKEN, chat_id, text)
+        await send_message(BOT_TOKEN, chat_id, text, reply_markup=MENU_KEYBOARD)
 
 
 # Rendered pictures, keyed by what is drawn in them, least-recently-used last.
@@ -314,17 +315,18 @@ async def _send_schedule(chat_id: int, picture: dict | None, text: str) -> None:
     file_id, and naming that id afterwards skips the upload entirely.
     """
     if not picture:
-        await send_message(BOT_TOKEN, chat_id, text)
+        await send_message(BOT_TOKEN, chat_id, text, reply_markup=MENU_KEYBOARD)
         return
 
     caption = text if len(text) <= CAPTION_LIMIT else None
     sent = await send_photo(BOT_TOKEN, chat_id,
-                            picture["file_id"] or picture["png"], caption=caption)
+                            picture["file_id"] or picture["png"], caption=caption,
+                            reply_markup=MENU_KEYBOARD)
     if sent and not picture["file_id"]:
         picture["file_id"] = sent
 
     if caption is None or not sent:
-        await send_message(BOT_TOKEN, chat_id, text)
+        await send_message(BOT_TOKEN, chat_id, text, reply_markup=MENU_KEYBOARD)
 
 
 def _describe_user(who: dict | None) -> str:
@@ -422,7 +424,7 @@ async def _send_day_schedule(chat_id: int, date: str, entry: dict, when: str) ->
         source_line = _provider_stamp_line(parsed)
         if source_line:
             lines.append(source_line)
-        await send_message(BOT_TOKEN, chat_id, "\n".join(lines))
+        await send_message(BOT_TOKEN, chat_id, "\n".join(lines), reply_markup=MENU_KEYBOARD)
         return
 
     await _send_schedule(chat_id, _grid_picture(parsed),
@@ -437,7 +439,7 @@ async def send_current_schedule(chat_id: int) -> None:
     if not entry:
         await send_message(BOT_TOKEN, chat_id,
             "ℹ️ Графік на сьогодні ще не опубліковано. "
-            "Щойно він з'явиться — надішлемо автоматично.")
+            "Щойно він з'явиться — надішлемо автоматично.", reply_markup=MENU_KEYBOARD)
         return
     await _send_day_schedule(chat_id, today, entry, "сьогодні")
 
@@ -450,7 +452,7 @@ async def send_tomorrow_schedule(chat_id: int) -> None:
     if not entry:
         await send_message(BOT_TOKEN, chat_id,
             "ℹ️ Графік на завтра ще не опубліковано. "
-            "Зазвичай він з'являється ввечері.")
+            "Зазвичай він з'являється ввечері.", reply_markup=MENU_KEYBOARD)
         return
     await _send_day_schedule(chat_id, tomorrow, entry, "завтра")
 
@@ -463,13 +465,13 @@ async def _send_cards_for(chat_id: int, date: str, entry: dict, when: str) -> No
     """
     if not has_outages(entry["schedule"]):
         await send_message(BOT_TOKEN, chat_id,
-            f"🟢 На {when} ({date}) відключень не прогнозується.")
+            f"🟢 На {when} ({date}) відключень не прогнозується.", reply_markup=MENU_KEYBOARD)
         return
     png = render_cards_png(entry["schedule"], date)
     if png is None:
         await send_message(BOT_TOKEN, chat_id, "❌ Не вдалось намалювати картинку.")
         return
-    file_id = await send_photo(BOT_TOKEN, chat_id, png)
+    file_id = await send_photo(BOT_TOKEN, chat_id, png, reply_markup=MENU_KEYBOARD)
     if file_id is None:
         await send_message(BOT_TOKEN, chat_id, "❌ Не вдалось надіслати картинку.")
 
@@ -483,7 +485,7 @@ async def send_cards_schedule(chat_id: int) -> None:
     if not entry:
         await send_message(BOT_TOKEN, chat_id,
             "ℹ️ Графік на сьогодні ще не опубліковано. "
-            "Щойно він з'явиться — надішлемо автоматично.")
+            "Щойно він з'явиться — надішлемо автоматично.", reply_markup=MENU_KEYBOARD)
         return
     await _send_cards_for(chat_id, today, entry, "сьогодні")
 
@@ -497,7 +499,7 @@ async def send_cards_schedule_tomorrow(chat_id: int) -> None:
     if not entry:
         await send_message(BOT_TOKEN, chat_id,
             "ℹ️ Графік на завтра ще не опубліковано. "
-            "Зазвичай він з'являється ввечері.")
+            "Зазвичай він з'являється ввечері.", reply_markup=MENU_KEYBOARD)
         return
     await _send_cards_for(chat_id, tomorrow, entry, "завтра")
 

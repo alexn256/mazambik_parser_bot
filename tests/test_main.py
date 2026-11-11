@@ -182,7 +182,7 @@ def photos(monkeypatch):
     main._pictures.clear()
     sent = []
 
-    async def fake_photo(token, chat_id, photo, caption=None):
+    async def fake_photo(token, chat_id, photo, caption=None, reply_markup=None):
         sent.append((chat_id, photo, caption))
         # Telegram answers an upload with the id it filed the photo under
         return photo if isinstance(photo, str) else "file-id-1"
@@ -197,7 +197,7 @@ class TestSendDaySchedule:
     @pytest.fixture
     def sent(self, monkeypatch, photos):
         messages = []
-        async def fake_send(token, chat_id, text):
+        async def fake_send(token, chat_id, text, reply_markup=None):
             messages.append(text)
         monkeypatch.setattr(main, "send_message", fake_send)
         monkeypatch.setattr(main, "load_subscribers", lambda path: {42: "1.1"})
@@ -269,7 +269,7 @@ class TestQuietForecastThenSchedule:
     @pytest.fixture
     def pipeline(self, monkeypatch, tmp_path, photos):
         sent = []
-        async def fake_send(token, chat_id, text):
+        async def fake_send(token, chat_id, text, reply_markup=None):
             sent.append((chat_id, text))
         monkeypatch.setattr(main, "send_message", fake_send)
         monkeypatch.setattr(main, "load_subscribers", lambda path: {1: "1.1", 2: "4.2"})
@@ -319,7 +319,7 @@ class TestCancellation:
     @pytest.fixture
     def pipeline(self, monkeypatch, tmp_path, photos):
         sent = []
-        async def fake_send(token, chat_id, text):
+        async def fake_send(token, chat_id, text, reply_markup=None):
             sent.append((chat_id, text))
             return True
         monkeypatch.setattr(main, "send_message", fake_send)
@@ -412,7 +412,7 @@ class TestAnnounceMembership:
     def admin(self, monkeypatch, tmp_path):
         sent = []
 
-        async def fake_send(token, chat_id, text):
+        async def fake_send(token, chat_id, text, reply_markup=None):
             sent.append((chat_id, text))
 
         monkeypatch.setattr(main, "USER_CHAT_ID", self.ADMIN)
@@ -520,7 +520,7 @@ class TestSchedulePicture:
     @pytest.fixture
     def pipeline(self, monkeypatch, tmp_path, photos):
         sent = []
-        async def fake_send(token, chat_id, text):
+        async def fake_send(token, chat_id, text, reply_markup=None):
             sent.append((chat_id, text))
         monkeypatch.setattr(main, "send_message", fake_send)
         monkeypatch.setattr(sender, "send_message", fake_send)   # cancellations broadcast
@@ -638,7 +638,7 @@ class TestPictureCache:
             calls.append(stamp)
             return b"\x89PNG-fake"
 
-        async def fake_send(token, chat_id, text):
+        async def fake_send(token, chat_id, text, reply_markup=None):
             return True
 
         monkeypatch.setattr(main, "render_png", counting_render)
@@ -678,7 +678,7 @@ class TestPictureCache:
         assert photos[2][1] == "file-id-1"
 
     def test_a_failed_upload_does_not_poison_the_cache(self, renders, monkeypatch):
-        async def failing(token, chat_id, photo, caption=None):
+        async def failing(token, chat_id, photo, caption=None, reply_markup=None):
             return None
         monkeypatch.setattr(main, "send_photo", failing)
         picture = main._grid_picture(self.DAY)
@@ -872,7 +872,7 @@ class TestTelegramFallbackGate:
         monkeypatch.setattr(main, "HISTORY_FILE_PATH", str(tmp_path / "history.json"))
         monkeypatch.setattr(main, "load_subscribers", lambda path: {42: None})
 
-        async def fake_send(token, chat_id, text):
+        async def fake_send(token, chat_id, text, reply_markup=None):
             return True
 
         monkeypatch.setattr(main, "send_message", fake_send)

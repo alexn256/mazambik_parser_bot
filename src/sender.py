@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 
 import httpx
@@ -98,18 +99,23 @@ def _file_id(resp) -> str | None:
 
 
 async def send_photo(bot_token: str, chat_id: int, photo: bytes | str,
-                     caption: str | None = None) -> str | None:
+                     caption: str | None = None,
+                     reply_markup: dict | None = None) -> str | None:
     """Send a photo via Telegram Bot API. Returns its file_id, or None on failure.
 
     `photo` is either PNG bytes to upload, or a file_id string Telegram already
     holds. Passing the id back on later sends means the same picture crosses the
     wire once per broadcast instead of once per subscriber.
+
+    `reply_markup` is almost always omitted — see `send_message`.
     """
     url = f"https://api.telegram.org/bot{bot_token}/sendPhoto"
     data = {"chat_id": chat_id}
     if caption:
         data["caption"] = caption
         data["parse_mode"] = "HTML"
+    if reply_markup is not None:
+        data["reply_markup"] = json.dumps(reply_markup)
 
     client = _client_for_sends()
 
