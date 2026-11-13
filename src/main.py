@@ -43,7 +43,7 @@ from cards_image import render_png as render_cards_png
 from sender import BROADCAST_DELAY, broadcast, send_message, send_photo
 from history import load_history, record_day, save_history
 from state import build_state, is_new_day, load_state, save_state
-from stats import compute_stats
+from stats import compute_stats, format_duration
 from subscribers import (
     add_subscriber,
     load_subscribers,
@@ -90,15 +90,6 @@ def _end_to_minutes(t: str) -> int:
     """Range END as minutes: '00:00' means midnight (1440), not day start."""
     minutes = _time_to_minutes(t)
     return 24 * 60 if minutes == 0 else minutes
-
-
-def _format_duration(minutes: int) -> str:
-    h, m = divmod(minutes, 60)
-    if h > 0 and m > 0:
-        return f"{h} год {m} хв"
-    elif h > 0:
-        return f"{h} год"
-    return f"{m} хв"
 
 
 def _minutes_to_time(minutes: int) -> str:
@@ -163,7 +154,7 @@ async def send_current_status(chat_id: int) -> None:
         remaining = _end_to_minutes(current_outage["end"]) - now_m
         next_outage = _find_next_range(ranges, _end_to_minutes(current_outage["end"]))
         lines.append(f"🔴 Зараз відключення · черга {queue}")
-        lines.append(f"до {current_outage['end']} (ще {_format_duration(remaining)})")
+        lines.append(f"до {current_outage['end']} (ще {format_duration(remaining)})")
         hint = _restoration_hint(current_outage, now_m)
         if hint:
             lines.append(hint)
@@ -177,7 +168,7 @@ async def send_current_status(chat_id: int) -> None:
         if next_outage:
             remaining = _time_to_minutes(next_outage["start"]) - now_m
             lines.append(f"💡 Зараз є світло · черга {queue}")
-            lines.append(f"до {next_outage['start']} (ще {_format_duration(remaining)})")
+            lines.append(f"до {next_outage['start']} (ще {format_duration(remaining)})")
             lines.append(f"Далі: відключення {next_outage['start']} – {next_outage['end']}")
         else:
             lines.append(f"💡 Зараз є світло · черга {queue}")

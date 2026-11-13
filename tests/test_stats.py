@@ -1,5 +1,28 @@
 import pytest
-from stats import _progress_bar, _total_outage_minutes, BAR_BLOCKS, BAR_MAX_MINUTES
+from stats import (
+    _progress_bar,
+    _total_outage_minutes,
+    format_duration,
+    BAR_BLOCKS,
+    BAR_MAX_MINUTES,
+)
+
+
+class TestFormatDuration:
+    def test_only_minutes(self):
+        assert format_duration(45) == "45 хв"
+
+    def test_only_hours(self):
+        assert format_duration(120) == "2 год"
+
+    def test_hours_and_minutes(self):
+        assert format_duration(90) == "1 год 30 хв"
+
+    def test_zero(self):
+        assert format_duration(0) == "0 хв"
+
+    def test_one_hour_one_minute(self):
+        assert format_duration(61) == "1 год 1 хв"
 
 
 class TestProgressBar:

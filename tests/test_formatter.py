@@ -85,6 +85,39 @@ class TestSwitchingNote:
         assert text.index("Зміни:") < text.index(SWITCHING_NOTE)
 
 
+class TestQueueTotalInParens:
+    """Each queue's range line ends with its own total time without power.
+
+    1.1 on the fixture day (10.04.2026): 00:00–02:30, 07:00–09:30,
+    13:00–15:00, 19:00–20:30 — 2.5 + 2.5 + 2 + 1.5 = 8.5 hours.
+    """
+
+    def _at(self, hour, minute, date=10):
+        return datetime(2026, 4, date, hour, minute)
+
+    def test_personal_view_shows_the_total(self, outage_day):
+        text = format_schedule(outage_day, diff=None, is_first=True, queue_filter="1.1")
+        assert "(8 год 30 хв)" in text
+
+    def test_full_schedule_shows_the_total_per_queue(self, outage_day):
+        text = format_schedule(outage_day, diff=None, is_first=True)
+        assert "(8 год 30 хв)" in text
+
+    def test_no_outages_has_no_total_in_parens(self):
+        text = format_schedule({"date": "14.09.2026", "schedule": EMPTY_SCHEDULE},
+                               diff=None, is_first=True, queue_filter="1.1")
+        assert "Черга 1.1</b> · немає відключень" in text
+        assert "(" not in text.split("немає відключень")[0].split("Черга")[-1]
+
+    def test_the_total_does_not_shrink_as_ranges_get_trimmed(self, outage_day):
+        # By 15:30 only "19:00–20:30" (1.5h) is still printed, but the total
+        # must still read the full day's 8.5h — same reasoning as the bar
+        # and hour totals below it.
+        text = format_schedule(outage_day, diff=None, is_first=True,
+                               queue_filter="1.1", now=self._at(15, 30))
+        assert "19:00–20:30 (8 год 30 хв)" in text
+
+
 class TestPastRangesAreTrimmed:
     """A reader at 15:30 lived through whatever already finished — repeating
     it in an update tells them nothing, only what is ongoing or upcoming does.

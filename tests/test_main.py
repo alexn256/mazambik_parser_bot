@@ -8,7 +8,6 @@ import main
 import sender
 from main import (
     _find_next_range,
-    _format_duration,
     _refresh_unchanged_day,
     _restoration_hint,
     _time_to_minutes,
@@ -30,23 +29,6 @@ class TestTimeToMinutes:
 
     def test_end_of_day(self):
         assert _time_to_minutes("23:59") == 1439
-
-
-class TestFormatDuration:
-    def test_only_minutes(self):
-        assert _format_duration(45) == "45 хв"
-
-    def test_only_hours(self):
-        assert _format_duration(120) == "2 год"
-
-    def test_hours_and_minutes(self):
-        assert _format_duration(90) == "1 год 30 хв"
-
-    def test_zero(self):
-        assert _format_duration(0) == "0 хв"
-
-    def test_one_hour_one_minute(self):
-        assert _format_duration(61) == "1 год 1 хв"
 
 
 class TestFindNextRange:

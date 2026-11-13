@@ -1,7 +1,7 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from stats import _progress_bar, _total_outage_minutes
+from stats import _progress_bar, _total_outage_minutes, format_duration
 
 # A fixed UTC+3 offset is wrong half the year — Ukraine is EET (UTC+2) outside
 # DST, EEST (UTC+3) inside it. ZoneInfo tracks which one actually applies.
@@ -61,13 +61,23 @@ def _fmt_range(r: dict) -> str:
     return f"{r['start']}–{r['end']}"
 
 
-def _fmt_ranges(ranges: list) -> str:
+def _fmt_ranges(ranges: list, full_ranges: list | None = None) -> str:
+    """Ranges as "HH:MM–HH:MM, ..." plus the queue's total time without power.
+
+    The total comes from `full_ranges` when given — the whole day's ranges,
+    not the (possibly trimmed to what's still ahead) `ranges` being printed —
+    for the same reason the bar and hour totals read off the full day: a
+    total that shrank as ranges finished would read as the outage picture
+    itself changing when nothing about it has.
+    """
     if not ranges:
         return "немає відключень"
-    return ", ".join(_fmt_range(r) for r in ranges)
+    total = format_duration(_total_outage_minutes(
+        full_ranges if full_ranges is not None else ranges))
+    return f"{', '.join(_fmt_range(r) for r in ranges)} ({total})"
 
 
-def _queue_block(q_num: int, schedule: dict) -> str:
+def _queue_block(q_num: int, schedule: dict, full_schedule: dict) -> str:
     emoji = QUEUE_EMOJI[str(q_num)]
     label1 = f"{q_num}.1"
     label2 = f"{q_num}.2"
@@ -75,8 +85,8 @@ def _queue_block(q_num: int, schedule: dict) -> str:
     ranges2 = schedule.get(label2, [])
     return (
         f"{emoji} <b>{q_num} черга</b>\n"
-        f"  {label1} · {_fmt_ranges(ranges1)}\n"
-        f"  {label2} · {_fmt_ranges(ranges2)}"
+        f"  {label1} · {_fmt_ranges(ranges1, full_schedule.get(label1, []))}\n"
+        f"  {label2} · {_fmt_ranges(ranges2, full_schedule.get(label2, []))}"
     )
 
 
@@ -128,18 +138,20 @@ def format_schedule(
         emoji = QUEUE_EMOJI[q_num]
         ranges = schedule.get(queue_filter, [])
         has_ranges = bool(ranges)
+        # The bar, hour totals and the range line's own "(...)" total all
+        # describe the whole day, same as always — only the printed ranges
+        # themselves are trimmed to what is still ahead. Counting the total
+        # against what is left of the day instead would make it shrink as the
+        # day goes on, which reads as the outage picture itself changing when
+        # nothing about it has.
+        full_ranges = full_schedule.get(queue_filter, [])
+
         # One queue, one line: "1 черга" above "1.2 · ranges" said the same
         # number twice for a subscriber who only ever sees their own queue.
         # The grouped two-line form stays in the full schedule, where a
         # shared header over both sub-queues earns its place.
-        lines.append(f"{emoji} <b>Черга {queue_filter}</b> · {_fmt_ranges(ranges)}")
+        lines.append(f"{emoji} <b>Черга {queue_filter}</b> · {_fmt_ranges(ranges, full_ranges)}")
 
-        # The bar and hour totals describe the whole day, same as always — only
-        # the printed ranges above are trimmed to what is still ahead. Counting
-        # them against what is left of the day instead would make the total
-        # shrink as the day goes on, which reads as the outage picture itself
-        # changing when nothing about it has.
-        full_ranges = full_schedule.get(queue_filter, [])
         minutes_off = _total_outage_minutes(full_ranges)
         minutes_on = 24 * 60 - minutes_off
         bar = _progress_bar(minutes_off)
@@ -149,7 +161,7 @@ def format_schedule(
     else:
         has_ranges = any(schedule.values())
         for q_num in range(1, 7):
-            lines.append(_queue_block(q_num, schedule))
+            lines.append(_queue_block(q_num, schedule, full_schedule))
 
     display_diff = (
         [c for c in diff if c["queue"] == queue_filter]

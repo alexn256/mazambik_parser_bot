@@ -7,6 +7,15 @@ BAR_BLOCKS = 12
 BAR_MAX_MINUTES = MINUTES_IN_DAY
 
 
+def format_duration(minutes: int) -> str:
+    h, m = divmod(minutes, 60)
+    if h > 0 and m > 0:
+        return f"{h} год {m} хв"
+    elif h > 0:
+        return f"{h} год"
+    return f"{m} хв"
+
+
 def _date_sort_key(date_str: str) -> datetime:
     try:
         return datetime.strptime(date_str, "%d.%m.%Y")
